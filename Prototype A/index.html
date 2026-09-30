@@ -568,12 +568,12 @@ function buildFrozenHollow() {
 // waits in the hillside: jump it, and let the boulder itself plunge in behind you and plug it for good.
 // Hatching happens the moment the last rock cracks — then it's a straight flight back up to the nest.
 function buildBoulderHill() {
-  COLS = 88; ROWS = 38;
+  COLS = 98; ROWS = 48;
   map = Array.from({ length: ROWS }, () => new Array(COLS).fill(1));
   const set = (c0, r0, c1, r1, t) => { for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) map[y][x] = t; };
   const carve = (c0, r0, c1, r1) => set(c0, r0, c1, r1, 0);
 
-  carve(0, 0, 72, 8);                                                   // open sky the whole way, for the flight home
+  carve(0, 0, 82, 8);                                                   // open sky the whole way, for the flight home
 
   // --- Part 1: the canyon approach ---
   carve(0, 9, 31, 20);                                                  // canyon corridor, floor at row 21
@@ -586,34 +586,35 @@ function buildBoulderHill() {
   set(32, 9, 33, 20, 2);                                                // the brick wall — dash through to wake the boulder
 
   // --- Part 2: the boulder hill ---
-  // the slope starts flush with the part-1 floor (row 21) at col 34 and descends 1:1 from there
-  carve(34, 9, 72, 37);
-  for (let i = 0; i < 14; i++) { map[21 + i][34 + i] = 7; set(34 + i, 22 + i, 34 + i, 37, 1); }  // steep downhill run
-  set(48, 35, 72, 37, 1);                                               // the landing below the hill, floor at row 35
+  // the slope starts flush with the part-1 floor (row 21) at col 34 and descends 1:1 from there — a long run,
+  // so the boulder (falls straight down off the ridge, then builds up speed as it rolls) has real room to threaten you
+  carve(34, 9, 82, 47);
+  for (let i = 0; i < 24; i++) { map[21 + i][34 + i] = 7; set(34 + i, 22 + i, 34 + i, 47, 1); }  // steep downhill run
+  set(58, 45, 82, 47, 1);                                               // the landing below the hill, floor at row 45
 
-  set(48, 9, 49, 34, 2);                                                // required rock: dash it mid-chase
-  set(53, 9, 55, 37, 0);                                                // the pit — jump it, or fall forever
-  set(59, 9, 60, 34, 2);                                                // required rock: the last crack — hatches you
+  set(58, 9, 59, 44, 2);                                                // required rock: dash it mid-chase
+  set(63, 9, 65, 47, 0);                                                // the pit — jump it, or fall forever
+  set(69, 9, 70, 44, 2);                                                // required rock: the last crack — hatches you
 
-  set(64, 5, 65, 34, 11);                                               // rising air, straight up to the open sky
+  set(74, 5, 75, 44, 11);                                               // rising air, straight up to the open sky
 
-  REQUIRED = [[32, 14], [48, 20], [59, 20]];
+  REQUIRED = [[32, 14], [58, 20], [69, 20]];
   enemies = [
     beetle(25, 21, -1, 23, 31),
-    boulder(34, 8, { trigC: 32, trigR: 14, maxSpd: 6.5, rollAcc: 0.5, plugC0: 53, plugC1: 55, plugRow: 35 }),
+    boulder(34, 8, { trigC: 32, trigR: 14, maxSpd: 9, rollAcc: 0.18, plugC0: 63, plugC1: 65, plugRow: 45 }),
   ];
-  seeds = [[12, 18], [22, 18], [29, 18], [38, 22], [46, 30], [51, 32], [62, 32], [64, 10], [6, 6]].map(([c, r]) => seedAt(c, r));
+  seeds = [[12, 18], [22, 18], [29, 18], [38, 22], [46, 30], [61, 42], [72, 42], [74, 20], [6, 6]].map(([c, r]) => seedAt(c, r));
   signs = [
     { c: 3, r: 21, key: 'canyonSign0' },
     { c: 16, r: 21, key: 'canyonSign2' },
     { c: 29, r: 21, key: 'canyonSign3' },
     { c: 35, r: 22, key: 'canyonSign4' },
     { c: 45, r: 32, key: 'canyonSign5' },
-    { c: 51, r: 35, key: 'canyonSign6' },
-    { c: 57, r: 35, key: 'canyonSign7' },
+    { c: 61, r: 45, key: 'canyonSign6' },
+    { c: 67, r: 45, key: 'canyonSign7' },
   ];
   // a gentle thermal along the upper canyon — lets a bird cruise the long way home without landing
-  for (let r = 5; r <= 18; r++) for (let c = 0; c <= 63; c++) if (map[r][c] === 0) map[r][c] = 11;
+  for (let r = 5; r <= 18; r++) for (let c = 0; c <= 73; c++) if (map[r][c] === 0) map[r][c] = 11;
 }
 
 // ---------- themes ----------
@@ -831,8 +832,8 @@ function icicle(c, r) { return { kind: 'icicle', x: c * TS + 16, y: r * TS, y0: 
 // if it rolls into the pit spanned by plugC0..plugC1 it wedges there and plugs it with rock (safe to hop over)
 function boulder(c, r, o) {
   const size = o.size ?? 76;
-  return { kind: 'boulder', x: c * TS, y: r * TS, w: size, h: size, vx: 0, vy: 0, face: o.dir ?? 1, rot: 0, active: false, lodged: false,
-    trigC: o.trigC, trigR: o.trigR, maxSpd: o.maxSpd ?? 6.5, rollAcc: o.rollAcc ?? 0.5, plugC0: o.plugC0, plugC1: o.plugC1, plugRow: o.plugRow };
+  return { kind: 'boulder', x: c * TS, y: r * TS, w: size, h: size, vx: 0, vy: 0, face: o.dir ?? 1, rot: 0, active: false, lodged: false, onGround: false,
+    trigC: o.trigC, trigR: o.trigR, maxSpd: o.maxSpd ?? 9, rollAcc: o.rollAcc ?? 0.18, plugC0: o.plugC0, plugC1: o.plugC1, plugRow: o.plugRow };
 }
 
 function updateEnemies() {
@@ -876,16 +877,17 @@ function updateEnemies() {
       }
       if (e.lodged) continue;
       e.anim = (e.anim || 0) + 0.2;
-      // rolls downhill under its own weight — faster than a run, but a good tucked roll can still outpace it
-      e.vx = clamp(e.vx + e.face * e.rollAcc, -e.maxSpd, e.maxSpd);
+      // only picks up horizontal speed while actually rolling on the ground — a pure straight drop in the air, then a building roll once it lands
+      if (e.onGround) e.vx = clamp(e.vx + e.face * e.rollAcc, -e.maxSpd, e.maxSpd);
       e.rot += e.vx * 0.045;
       e.x += e.vx;
       if (overlapSolids(e.x, e.y, e.w, e.h).length) e.x -= e.vx;
       e.vy = Math.min(e.vy + 0.6, 15);
       e.y += e.vy;
       const hitsY = overlapSolids(e.x, e.y, e.w, e.h);
+      e.onGround = false;
       if (hitsY.length) {
-        if (e.vy > 0) e.y = Math.min(...hitsY.map(h => h.r)) * TS - e.h;
+        if (e.vy > 0) { e.y = Math.min(...hitsY.map(h => h.r)) * TS - e.h; e.onGround = true; }
         else e.y = (Math.max(...hitsY.map(h => h.r)) + 1) * TS;
         e.vy = 0;
       }
