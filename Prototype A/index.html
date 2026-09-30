@@ -323,6 +323,61 @@ function buildFrozenHollow() {
   ];
 }
 
+// ---------- Level 5: boulder canyon (hand-built) ----------
+// Dash through the brick wall and you wake a boulder up on the ridge behind you. It rolls after you down
+// the hillside, faster than you can run — tuck (↓) and roll to out-pace it instead. Partway down, a pit
+// waits in the hillside: jump it, and let the boulder itself plunge in behind you and plug it for good.
+// Hatching happens the moment the last rock cracks — then it's a straight flight back up to the nest.
+function buildBoulderHill() {
+  COLS = 88; ROWS = 38;
+  map = Array.from({ length: ROWS }, () => new Array(COLS).fill(1));
+  const set = (c0, r0, c1, r1, t) => { for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) map[y][x] = t; };
+  const carve = (c0, r0, c1, r1) => set(c0, r0, c1, r1, 0);
+
+  carve(0, 0, 72, 8);                                                   // open sky the whole way, for the flight home
+
+  // --- Part 1: the canyon approach ---
+  carve(0, 9, 31, 20);                                                  // canyon corridor, floor at row 21
+  START = { c: 3, r: 21 };
+  set(0, 6, 3, 6, 1); NEST = { c0: 0, c1: 3, r: 6 };                    // the nest you fell from — and fly back to (sits just under the thermal, so a cruising bird clears it and can dip down onto it)
+
+  set(9, 21, 10, 21, 3);                                                // thorn hop
+  WARM = { c0: 19, c1: 22, r0: 19, r1: 21 };                            // warm sand — hatch to legs
+
+  set(32, 9, 33, 20, 2);                                                // the brick wall — dash through to wake the boulder
+
+  // --- Part 2: the boulder hill ---
+  // the slope starts flush with the part-1 floor (row 21) at col 34 and descends 1:1 from there
+  carve(34, 9, 72, 37);
+  for (let i = 0; i < 14; i++) { map[21 + i][34 + i] = 7; set(34 + i, 22 + i, 34 + i, 37, 1); }  // steep downhill run
+  set(48, 35, 72, 37, 1);                                               // the landing below the hill, floor at row 35
+
+  set(48, 9, 49, 34, 2);                                                // required rock: dash it mid-chase
+  set(53, 9, 55, 37, 0);                                                // the pit — jump it, or fall forever
+  set(59, 9, 60, 34, 2);                                                // required rock: the last crack — hatches you
+
+  set(64, 5, 65, 34, 11);                                               // rising air, straight up to the open sky
+
+  REQUIRED = [[32, 14], [48, 20], [59, 20]];
+  enemies = [
+    beetle(25, 21, -1, 23, 31),
+    boulder(34, 8, { trigC: 32, trigR: 14, maxSpd: 6.5, rollAcc: 0.5, plugC0: 53, plugC1: 55, plugRow: 35 }),
+  ];
+  seeds = [[12, 18], [22, 18], [29, 18], [38, 22], [46, 30], [51, 32], [62, 32], [64, 10], [6, 6]].map(([c, r]) => seedAt(c, r));
+  signs = [
+    { c: 3, r: 21, t: ['Fifth egg, one life.', 'You know the drill by now'] },
+    { c: 7, r: 21, t: ['Hop the thorns!'] },
+    { c: 16, r: 21, t: ['Warm sand!', 'Rest here to hatch'] },
+    { c: 29, r: 21, t: ['Something sleeps', 'behind that wall…'] },
+    { c: 35, r: 22, t: ["RUN and it'll catch you!", 'Tuck (↓) and roll instead'] },
+    { c: 45, r: 32, t: ['Untuck, dash, tuck again —', "quick, it's gaining!"] },
+    { c: 51, r: 35, t: ['Big drop ahead!', 'JUMP it!'] },
+    { c: 57, r: 35, t: ["It's wedged in there now —", 'safe to hop over'] },
+  ];
+  // a gentle thermal along the upper canyon — lets a bird cruise the long way home without landing
+  for (let r = 5; r <= 18; r++) for (let c = 0; c <= 63; c++) if (map[r][c] === 0) map[r][c] = 11;
+}
+
 // ---------- themes ----------
 const THEMES = {
   forest: {
@@ -348,6 +403,12 @@ const THEMES = {
     hills: [[0.1, 320, 140, 0.006, 'rgba(120,150,190,0.7)', null, true], [0.22, 410, 85, 0.011, 'rgba(85,115,165,0.8)', null, true], [0.4, 490, 40, 0.014, 'rgba(55,85,130,0.9)', '#3f5f8a']],
     earth: ['#c9d8e6', '#9fb3c8', '#6d84a0', '#46566e'], outline: '#1c2438', grass: ['#ffffff', '#e3edf7', '#b7c9de'], snow: true,
     lip: 'rgba(190,210,230,0.85)', cave: '#16233a', water: [60, 150, 190], warm: 'steam', tint: '10,16,30', motes: 'snow', storm: true,
+  },
+  canyon: {
+    sky: ['#ff9d5c', '#ffc98a', '#ffe9c2'], sun: [0.78, 70, 150, '255,225,160'], cloud: ['rgba(255,240,225,0.9)', 'rgba(200,120,90,0.3)'],
+    hills: [[0.1, 310, 60, 0.005, 'rgba(200,130,100,0.55)', null], [0.22, 390, 42, 0.008, 'rgba(190,110,80,0.7)', '#b8724c'], [0.4, 460, 30, 0.012, 'rgba(160,85,60,0.85)', '#8a4e34']],
+    earth: ['#d7a05f', '#b87840', '#8a5230', '#5c331e'], outline: '#3d2415', grass: ['#e3b86a', '#c98f4a', '#a06a34'],
+    lip: 'rgba(210,150,100,0.9)', cave: '#432815', warm: 'ember', tint: '40,20,8', motes: 'pollen',
   },
 };
 
@@ -380,6 +441,11 @@ const LEVELS = [
     name: 'The Frozen Hollow', tag: "The last egg sank through a crack in the ice! Every trick you've learned — at once, with nothing to spare",
     theme: 'ice', build: buildFrozenHollow, intro: 'wind',
     caves: [[0, 18, 92, 39]],
+  },
+  {
+    name: 'Boulder Canyon', tag: 'The next egg tumbled into a sun-baked canyon! Wake the big rock, then run for your life',
+    theme: 'canyon', build: buildBoulderHill, intro: 'nest',
+    caves: [[0, 9, 31, 24], [34, 9, 72, 37]],
   },
 ];
 
@@ -529,6 +595,12 @@ function crow(c0, c1, row, spd, ph) {
   return { kind: 'crow', x0, x1, y0: row * TS + 7, x: lerp(x0, x1, ph), y: row * TS + 7, w: 30, h: 18, vx: spd * (ph > 0.5 ? -1 : 1), anim: ph * 9, ph: ph * 6 };
 }
 function icicle(c, r) { return { kind: 'icicle', x: c * TS + 16, y: r * TS, y0: r * TS, w: 14, h: 28, st: 0, t: 0, vy: 0 }; }
+// a boulder rests until the rock wall at (trigC,trigR) is dashed open, then falls and chases the player downhill;
+// if it rolls into the pit spanned by plugC0..plugC1 it wedges there and plugs it with rock (safe to hop over)
+function boulder(c, r, o) {
+  return { kind: 'boulder', x: c * TS, y: r * TS, w: 36, h: 36, vx: 0, vy: 0, face: 1, rot: 0, active: false, lodged: false,
+    trigC: o.trigC, trigR: o.trigR, maxSpd: o.maxSpd ?? 6.5, rollAcc: o.rollAcc ?? 0.5, plugC0: o.plugC0, plugC1: o.plugC1, plugRow: o.plugRow };
+}
 
 function updateEnemies() {
   for (const e of enemies) {
@@ -564,6 +636,39 @@ function updateEnemies() {
           shards(e.x, e.y + e.h - 4, 9, ['#e8f6ff', '#bfe3ff', '#ffffff'], 3, 0.3, 6, 40);
         }
       }
+    } else if (e.kind === 'boulder') {
+      if (!e.active) {
+        if (tileAt(e.trigC, e.trigR) !== 2) { e.active = true; shake = Math.max(shake, 6); SFX.creak(); }
+        continue;
+      }
+      if (e.lodged) continue;
+      e.anim = (e.anim || 0) + 0.2;
+      // rolls after the player, picking up speed downhill — faster than a run, but a good tucked roll can still outpace it
+      const dir = Math.sign((P.x + P.w / 2) - (e.x + e.w / 2)) || e.face;
+      e.face = dir;
+      e.vx = clamp(e.vx + dir * e.rollAcc, -e.maxSpd, e.maxSpd);
+      e.rot += e.vx * 0.045;
+      e.x += e.vx;
+      if (overlapSolids(e.x, e.y, e.w, e.h).length) e.x -= e.vx;
+      e.vy = Math.min(e.vy + 0.6, 15);
+      e.y += e.vy;
+      const hitsY = overlapSolids(e.x, e.y, e.w, e.h);
+      if (hitsY.length) {
+        if (e.vy > 0) e.y = Math.min(...hitsY.map(h => h.r)) * TS - e.h;
+        else e.y = (Math.max(...hitsY.map(h => h.r)) + 1) * TS;
+        e.vy = 0;
+      }
+      // rolled into the pit: wedge there and plug it with rock — safe to hop over from now on
+      if (e.plugRow !== undefined) {
+        const cx = e.x + e.w / 2;
+        if (cx > e.plugC0 * TS && cx < (e.plugC1 + 1) * TS && e.y + e.h > e.plugRow * TS + TS) {
+          e.lodged = true; e.gone = true;
+          for (let c = e.plugC0; c <= e.plugC1; c++) { map[e.plugRow - 1][c] = 2; map[e.plugRow][c] = 2; }
+          shake = Math.max(shake, 14); hitstop = 6; SFX.break();
+          shards((e.plugC0 + e.plugC1 + 1) / 2 * TS, e.plugRow * TS, 14, ['#b8905f', '#8a6a48', '#d4ad7c'], 4, 0.35, 9, 60);
+        }
+      }
+      if (e.y > ROWS * TS + 60) e.gone = true;
     }
   }
   enemies = enemies.filter(e => !e.gone);
@@ -576,6 +681,11 @@ function touchEnemies(vyBefore, oldBottom) {
     if (e.dead) continue;
     if (e.kind === 'icicle') {
       if (e.st === 2 && px < e.x + 5 && px + pw > e.x - 5 && py < e.y + e.h && py + ph > e.y + 6) { die('icicle'); return true; }
+      continue;
+    }
+    if (e.kind === 'boulder') {
+      if (!e.active || e.lodged) continue;
+      if (px < e.x + e.w - 4 && px + pw > e.x + 4 && py < e.y + e.h - 4 && py + ph > e.y + 4) { die('boulder'); return true; }
       continue;
     }
     if (!(px < e.x + e.w - 2 && px + pw > e.x + 2 && py < e.y + e.h && py + ph > e.y + 3)) continue;
@@ -1458,8 +1568,21 @@ function drawEnemies() {
     if (e.x + 60 < camX || e.x - 60 > camX + VW || e.y + 60 < camY || e.y - 60 > camY + VH) continue;
     if (e.kind === 'beetle') drawBeetle(e);
     else if (e.kind === 'crow') drawCrow(e);
+    else if (e.kind === 'boulder') drawBoulder(e);
     else drawIcicle(e);
   }
+}
+function drawBoulder(e) {
+  const r = e.w / 2, cx = e.x + r, cy = e.y + e.h / 2;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(e.rot);
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.15, 0, 0, r);
+  g.addColorStop(0, '#e2c393'); g.addColorStop(0.6, '#a4825a'); g.addColorStop(1, '#5e4429');
+  ctx.fillStyle = g; ctx.strokeStyle = '#3f2e1d'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(63,46,29,0.55)'; ctx.lineWidth = 1.6;
+  for (let i = 0; i < 4; i++) { const a = i * 1.6 + 0.4; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3); ctx.lineTo(Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.35, r * 0.32, r * 0.18, -0.5, 0, 7); ctx.fill();
+  ctx.restore();
 }
 function drawBeetle(e) {
   const dir = e.vx > 0 ? 1 : -1;
@@ -2062,6 +2185,7 @@ const DEATHS = {
   beetle: ['CHOMP!', 'Beetles bite. Land on their backs instead!'],
   crow:   ['CAW!', 'A crow snatched you right out of the air.'],
   icicle: ['BONK!', 'Icicles drop when you stop underneath them.'],
+  boulder: ['CRUSH!', 'Running just made it faster. Tuck and roll next time!'],
 };
 function drawGameOver() {
   drawOverlay(Math.min(0.6, endT / 40));
