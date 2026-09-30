@@ -190,10 +190,10 @@ const CREEK_MAP = String.raw`
 
 // ---------- Level 3: storm peak (ASCII map) ----------
 const PEAK_MAP = String.raw`
-#...................................................................................................
-#...................................................................................................
-#.....................................................................*.............................
-#...................................................................................................
+#............................................................................................||||...
+#............................................................................................||||...
+#.....................................................................*......................||||...
+#............................................................................................||||...
 #...............................................................############################.||||.##
 #...............................................................############################.||||.##
 #...............................................................############################.||||.##
@@ -303,7 +303,7 @@ const LEVELS = [
   },
   {
     name: 'Storm Peak', tag: 'A storm swept the last egg up the mountain! Icicles, crows — and not a crack to spare',
-    theme: 'peak', map: PEAK_MAP, intro: 'wind', nest: { c0: 78, c1: 83, r: 4 },
+    theme: 'peak', map: PEAK_MAP, intro: 'wind', nest: { c0: 78, c1: 83, r: 4 }, openSky: true,
     caves: [[28, 28, 63, 33], [64, 33, 67, 33], [35, 34, 42, 35], [58, 21, 59, 27], [24, 28, 27, 37], [24, 38, 90, 45], [38, 46, 45, 46], [49, 46, 62, 46], [91, 4, 97, 45]],
     crows: [[92, 97, 37, 2.2, 0], [92, 97, 29, 2.6, 0.6], [92, 97, 21, 2.9, 0.25], [92, 97, 13, 3.1, 0.8], [66, 97, 1.4, 2.4, 0.4]],
     signs: [
@@ -322,7 +322,8 @@ function buildLevel() {
   buildTerrainArt();
 }
 
-const tileAt = (c, r) => (c < 0 || c >= COLS || r < 0 || r >= ROWS) ? 1 : map[r][c];
+// above the top of the map is solid, except on levels with open sky, where a bird can fly up out of view (warm air keeps rising)
+const tileAt = (c, r) => (c < 0 || c >= COLS || r >= ROWS) ? 1 : r < 0 ? (!LV.openSky ? 1 : map[0][c] === 11 ? 11 : 0) : map[r][c];
 const isSolid = t => t === 1 || t === 2 || t === 8 || t === 9 || t === 10;
 const isSlope = t => t === 6 || t === 7;
 // y of a slope tile's surface at world x. '/' rises to the right, '\' falls to the right
@@ -414,6 +415,7 @@ const SFX = {
   tuck:  () => tone(500, 260, 0.08, 'triangle', 0.1),
   boing: () => { tone(180, 720, 0.22, 'sine', 0.16); tone(360, 1100, 0.18, 'triangle', 0.06, 0.03); },
   untuck:() => tone(300, 620, 0.08, 'triangle', 0.1),
+  pop:   () => { noise(0.12, 0.3, 4000); tone(180, 520, 0.12, 'square', 0.08); },
   splash:() => { noise(0.25, 0.25, 1800); tone(400, 180, 0.12, 'sine', 0.08); },
   squash:() => { tone(300, 90, 0.12, 'square', 0.08); noise(0.08, 0.2, 1200); },
   creak: () => tone(1900, 1500, 0.15, 'triangle', 0.05),
@@ -702,7 +704,7 @@ function update() {
     P.trail.push(snapshot());
     if (P.trail.length > 6) P.trail.shift();
     if (frame % 2) particles.push({ x: P.x + P.w / 2 - P.dx * 10, y: P.y + P.h / 2 + rand(-8, 8), vx: -P.dx * 2, vy: 0, life: 16, max: 16, color: '#ffffff', size: rand(3, 6), grav: 0, shape: 'c' });
-    if (P.dashT === 0) P.vx = P.dx * F.max;
+    if (P.dashT === 0) { P.vx = P.dx * F.max; P.angle = P.dx * 1.1; }   // swing back upright from the horizontal dash pose
   } else {
     if (P.trail.length) P.trail.shift();
     if (floating) {
@@ -839,8 +841,8 @@ function update() {
   for (const s of seeds) if (!s.got && Math.abs(s.x - pcx) < P.w / 2 + 10 && Math.abs(s.y - pcy) < P.h / 2 + 10) {
     s.got = true; seedCount++; SFX.seed(); sparkle(s.x, s.y, 6, '#ffe066');
   }
-  // Goal: the bird reaches the nest
-  if (P.form === 'bird' && P.x + P.w > NEST.c0 * TS && P.x < (NEST.c1 + 1) * TS && P.y < NEST.r * TS) levelClear();
+  // Goal: the bird drops into the nest (flying high over it doesn't count)
+  if (P.form === 'bird' && P.x + P.w > NEST.c0 * TS && P.x < (NEST.c1 + 1) * TS && P.y < NEST.r * TS && P.y + P.h > NEST.r * TS - 44) levelClear();
 
   updateCamera();
 }
@@ -885,7 +887,7 @@ function moveX(wasGround) {
     const rocks = hits.filter(h => h.t === 2);
     if (rocks.length) breakRocks(rocks);
     else { wallHits++; SFX.bonk(); shake = 12; hitstop = 6; puff(P.x + P.w / 2 + P.dx * 12, P.y + P.h / 2, 8, 'rgba(200,170,130,0.9)', 2.5, 22, 6); }
-    P.dashT = 0; P.vx = -P.dx * 3.5; P.vy = -4; P.trail = [];
+    P.dashT = 0; P.vx = -P.dx * 3.5; P.vy = -4; P.trail = []; P.angle = P.dx * 1.1;
     crackShell(rocks.length > 0);
     return;
   }
@@ -968,7 +970,6 @@ function startTransform(to) {
   if (to === 'legs') {
     P.angle = normAngle(P.angle);
     setForm('legs'); P.legGrow = 0; P.heat = 0;
-    SFX.power();
   }
 }
 
@@ -976,15 +977,31 @@ function updateTransform() {
   P.trans--;
   const k = 1 - P.trans / P.transMax;
   if (P.transTo === 'legs') {
-    P.legGrow = Math.min(1, k * 1.5);
+    // the shell strains and wobbles (drawn from LEG_POP), then the legs burst out through the bottom
+    const popAt = Math.round(P.transMax * (1 - LEG_POP));
     P.angle = lerp(P.angle, 0, 0.12);
-    if (frame % 3 === 0) sparkle(P.x + P.w / 2, P.y + P.h / 2, 2, '#ffc27a');
+    if (P.trans > popAt) {
+      P.legGrow = 0;
+      if (P.trans % Math.max(4, Math.round(P.trans / 5)) === 0) { SFX.crack(); P.sx = 1.12; P.sy = 0.9; }
+      if (frame % 4 === 0) sparkle(P.x + P.w / 2, P.y + P.h - 10, 1, '#ffc27a');
+    } else {
+      const t = (popAt - P.trans) / popAt;
+      P.legGrow = 1 - Math.exp(-5 * t) * Math.cos(10 * t);   // shoots out, overshoots, settles
+    }
+    if (P.trans === popAt) {
+      P.sx = 0.72; P.sy = 1.4; shake = Math.max(shake, 8); hitstop = 3;
+      shards(P.x + P.w / 2, P.y + P.h - 6, 14, ['#fffaf0', '#f3e3c3', '#ecd7b3'], 3.5, 0.35, 7, 50);
+      puff(P.x + P.w / 2, P.y + P.h, 10, 'rgba(255,220,170,0.9)', 2.5, 24, 6);
+      sparkle(P.x + P.w / 2, P.y + P.h / 2, 8, '#ffc27a');
+      SFX.pop(); SFX.power();
+    }
     if (P.trans === 0) {
       P.angle = 0; P.legGrow = 1;
       showBanner('LEGS!', 'The warmth made you sprout legs!   Run · Jump · DASH (SHIFT) to smash rocks', 300);
       P.sy = 1.3; P.sx = 0.8;
     }
   } else {
+    P.angle = lerp(P.angle, 0, 0.2);
     if (P.trans > 40 && frame % 12 === 0) { SFX.crack(); shards(P.x + P.w / 2, P.y + 10, 2, ['#fffaf0', '#ecd7b3'], 2, 0.3, 4, 25); }
     if (P.trans === 40) {
       setForm('bird'); P.sy = 1.5; P.sx = 0.7;
@@ -1000,6 +1017,7 @@ function updateTransform() {
   }
   P.sx = lerp(P.sx, 1, 0.12); P.sy = lerp(P.sy, 1, 0.12);
 }
+const LEG_POP = 0.55;   // how far into the legs transformation the shell pops
 const requiredIntact = () => REQUIRED.some(([c, r]) => tileAt(c, r) === 2);
 
 function die(cause) {
@@ -1724,6 +1742,30 @@ function drawBirdBody(o, withCap = true) {
   }
 }
 
+// the jagged holes the legs broke through at the bottom of the shell (egg-local coords, h = half height)
+function drawLegHoles(h, k) {
+  for (const s of [-1, 1]) {
+    const x = s * 4.5, y = h - 3;
+    ctx.fillStyle = '#5b3d24';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2, r = (i % 2 ? 2.2 : 3.6) * k;
+      ctx.lineTo(x + Math.cos(a) * r * 1.2, y + Math.sin(a) * r * 0.8);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+}
+// hairline cracks spreading up from the bottom while the legs push against the shell
+function drawStrainCracks(h, k) {
+  ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  for (const s of [-1, 1]) {
+    const len = 3 + k * 9;
+    ctx.beginPath(); ctx.moveTo(s * 4.5, h - 1);
+    ctx.lineTo(s * 2.5, h - len * 0.4); ctx.lineTo(s * 6, h - len * 0.7); ctx.lineTo(s * 4, h - len);
+    ctx.stroke();
+  }
+}
+
 function drawCharacter(o, alpha = 1) {
   const F = FORMS[o.form === 'legs' && o.tucked ? 'egg' : o.form];
   ctx.save();
@@ -1741,9 +1783,24 @@ function drawCharacter(o, alpha = 1) {
       for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * 5, 11.5, 3.5, 2.5, 0, 0, 7); ctx.fill(); ctx.stroke(); }
     }
     drawEggBody(11.5, 13, o.cracks, o.face, blink, o === P && o.form === 'egg' ? Math.min(1, P.heat / 110) : 0);
+  } else if (o.form === 'legs' && o.dashT > 0) {
+    // dashing: the egg tips over and rams head first, legs streaming out behind
+    const k = o === P ? Math.min(1, (FORMS.legs.dashT + 1 - o.dashT) / 3) : 1;
+    ctx.translate(0, -20); ctx.rotate(o.face * Math.PI / 2 * k);
+    ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      const fl = Math.sin(frame * 0.9 + s) * 1.5;
+      ctx.beginPath(); ctx.moveTo(s * 4, 12); ctx.lineTo(s * 4 + fl, 24); ctx.lineTo(s * 4 + fl + o.face * 4, 25); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    drawEggBody(12.5, 14.5, o.cracks, o.face, blink);
+    drawLegHoles(14.5, 1);
   } else if (o.form === 'legs') {
     const lg = o.legGrow, legH = 11 * lg;
     const running = o.onGround && Math.abs(o.vx) > 0.3;
+    // legs transformation: the shell wobbles harder and harder before they pop out
+    const pre = o === P && P.trans && P.transTo === 'legs' ? clamp((1 - P.trans / P.transMax) / LEG_POP, 0, 1) : 0;
+    const wob = pre > 0 && pre < 1 ? Math.sin(frame * (0.6 + pre * 0.9)) * 0.22 * pre : 0;
     ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     for (const s of [-1, 1]) {
       let fx = s * 4, fy = 0;
@@ -1755,10 +1812,12 @@ function drawCharacter(o, alpha = 1) {
     ctx.lineCap = 'butt';
     const lean = o.dashT > 0 ? 0.35 * o.face : clamp(o.vx * 0.04, -0.18, 0.18);
     const bob = running ? -Math.abs(Math.sin(o.anim)) * 1.5 : 0;
-    ctx.translate(0, -legH - 14.5 + bob); ctx.rotate(o.angle + lean);
+    ctx.translate(0, -legH - 14.5 + bob); ctx.rotate(o.angle + lean + wob);
     let cr = o.cracks;
     if (o === P && P.trans && P.transTo === 'bird') cr = 3 + Math.floor((1 - P.trans / P.transMax) * 3);
     drawEggBody(12.5, 14.5, cr, o.face, blink);
+    if (pre > 0 && pre < 1) drawStrainCracks(14.5, pre);
+    if (lg > 0) drawLegHoles(14.5, Math.min(1, lg));
   } else {
     ctx.scale(o.face, 1);
     drawBirdBody(o);
@@ -1771,6 +1830,11 @@ function drawPlayer() {
   if (P.onGround) { ctx.fillStyle = 'rgba(35,20,10,0.22)'; ctx.beginPath(); ctx.ellipse(P.x + P.w / 2, P.y + P.h, P.w * 0.62, 4, 0, 0, 7); ctx.fill(); }
   P.trail.forEach((t, i) => drawCharacter(t, (i + 1) / P.trail.length * 0.3));
   drawCharacter(P);
+  if (P.y + P.h < camY) {   // flying up out of view: a little marker at the top edge shows where you are
+    const x = P.x + P.w / 2, y = camY + 10, a = 0.6 + Math.sin(frame * 0.2) * 0.3;
+    ctx.fillStyle = `rgba(255,210,63,${a})`; ctx.strokeStyle = 'rgba(91,61,36,0.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 9, y + 8); ctx.lineTo(x - 9, y + 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
   if (P.form === 'egg' && P.heat > 0) {
     const x = P.x + P.w / 2, y = P.y - 14, k = Math.min(1, P.heat / 110);
     ctx.fillStyle = 'rgba(30,20,40,0.6)'; ctx.beginPath(); ctx.roundRect(x - 22, y - 4, 44, 8, 4); ctx.fill();
