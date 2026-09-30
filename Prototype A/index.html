@@ -41,6 +41,10 @@
        border:1.5px solid rgba(255,255,255,.3);background:rgba(30,20,40,.45);color:rgba(255,255,255,.8);font:600 12px "Fredoka",system-ui,sans-serif;cursor:pointer;opacity:.55}
   #touchToggle:hover{opacity:1}
   body.touch #touchToggle{top:calc(env(safe-area-inset-top) + 8px);bottom:auto;height:44px;border-radius:12px}
+  #langToggle{position:fixed;z-index:6;bottom:calc(env(safe-area-inset-bottom) + 8px);left:calc(env(safe-area-inset-left) + 8px);height:32px;padding:0 10px;border-radius:10px;
+       border:1.5px solid rgba(255,255,255,.3);background:rgba(30,20,40,.45);color:rgba(255,255,255,.8);font:600 12px "Fredoka",system-ui,sans-serif;cursor:pointer;opacity:.55}
+  #langToggle:hover{opacity:1}
+  body.touch #langToggle{top:calc(env(safe-area-inset-top) + 8px);bottom:auto;height:44px;border-radius:12px}
   #rotate{position:fixed;inset:0;z-index:10;background:#1b1830;color:#ffe9a8;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;font-size:20px;padding:24px}
   #rotate .phone{width:46px;height:78px;border:4px solid #ffe9a8;border-radius:10px;animation:rot 2s ease-in-out infinite}
   @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
@@ -56,7 +60,8 @@
 <div id="restart" class="ctl small" data-key="reset">⟲</div>
 <div id="mute" class="ctl small" data-key="mute">♪</div>
 <button id="touchToggle" type="button">Touch controls</button>
-<div id="rotate"><div class="phone"></div><div>Turn your phone sideways to play</div></div>
+<button id="langToggle" type="button">FR</button>
+<div id="rotate"><div class="phone"></div><div id="rotateMsg">Turn your phone sideways to play</div></div>
 <script>
 'use strict';
 const cvs = document.getElementById('game'), ctx = cvs.getContext('2d');
@@ -67,6 +72,246 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const rand = (a, b) => a + Math.random() * (b - a);
 const hash = (x, y) => (((x * 73856093) ^ (y * 19349663)) >>> 0);
+
+// ============================ LANGUAGE ============================
+let lang = 'en';
+try {
+  const savedLang = localStorage.getItem('eggventure-lang');
+  lang = savedLang || ((navigator.language || '').toLowerCase().startsWith('fr') ? 'fr' : 'en');
+} catch (e) {}
+
+const I18N = { en: {}, fr: {} };
+I18N.en = {
+  brandTagline: 'Four eggs fell from the nest. Get warm, crack wisely, fly home.',
+  touchControls: 'Touch controls', hideTouchControls: 'Hide touch controls',
+  rotateMsg: 'Turn your phone sideways to play',
+  formEgg: 'EGG', formLegs: 'LEGGY EGG', formBird: 'BIRD',
+  abilEgg: 'roll · hop · floats · fits tunnels',
+  abilLegsTucked: 'tucked in: roll · float · fit tunnels',
+  abilLegs: 'run · jump · dash · ↓ tuck & roll',
+  abilBird: 'run · jump · flap · glide',
+  shellLabel: 'SHELL', hitsLeft: 'hits left', flapsLabel: 'FLAPS',
+  oneLife: 'ONE LIFE',
+  rockBlocks: 'A rock still blocks the way to the nest… hold R to restart the level',
+  restarting: 'Restarting level…',
+  hintEgg: '← →  roll   ·   SPACE  hop   ·   rest in a warm spot to hatch   ·   hold R  restart level',
+  hintLegs: '← →  run   ·   SPACE  jump   ·   SHIFT  dash (impacts crack you!)   ·   hold ↓  tuck & roll   ·   hold R  restart level',
+  hintBird: '← →  run   ·   SPACE  jump / flap   ·   hold SPACE  glide / rise   ·   hold R  restart level',
+  titleChooseTouch: 'Tap a level to play',
+  titleChooseKeys: '← →  choose a level   ·   SPACE / ENTER  play',
+  titleRulesLine: 'One life per try · missed seeds add +10 s to your time · dashing smashes rocks but EVERY impact cracks you',
+  titleTouchLegend: 'Stick: move · pull ↓ to tuck   ·   JUMP / DASH buttons   ·   ⟲ hold to restart the level',
+  titleKeysLegend: '← →  move   ·   SPACE / Z  jump   ·   SHIFT / X  dash   ·   hold ↓  tuck legs   ·   hold R  restart level   ·   P  pause   ·   M  mute',
+  locked: '🔒 Locked', noRecord: 'No record yet',
+  levelCaps: n => `LEVEL ${n}`,
+  finishToUnlock: n => `Finish level ${n} to unlock`,
+  recordLabel: time => `Record  ${time}`,
+  forestName: 'The Big Tree',
+  forestTag: 'You fell out of the nest! One life — roll down the hill and find somewhere warm to hatch',
+  creekName: 'The Creek',
+  creekTag: 'The wind blew the next egg into the creek! Eggs float — legs and wings sink',
+  peakName: 'Storm Peak',
+  peakTag: 'A storm swept the last egg up the mountain! Icicles, crows — and not a crack to spare',
+  hollowName: 'The Frozen Hollow',
+  hollowTag: "The last egg sank through a crack in the ice! Every trick you've learned — at once, with nothing to spare",
+  canyonName: 'Boulder Canyon',
+  canyonTag: 'The next egg tumbled into a sun-baked canyon! Wake the big rock, then run for your life',
+  forestSign0: ['Roll down the hill!', 'Hold → to go faster'],
+  forestSign1: ['Back to the hill?', 'Jump on the mushroom!'],
+  forestSign2: ['Careful! Dashing into', 'ANY wall cracks you'],
+  forestSign3: ['A warm spot!', 'Rest here to hatch…'],
+  forestSign4: ['Got legs? Climb', 'the branches up →'],
+  forestSign5: ['Beetles bite!', 'Hop on their backs'],
+  creekSign0: ['Beetles bite!', 'Hop on their backs'],
+  creekSign1: ['Thorns below — hop!', 'Then float across'],
+  creekSign2: ['A tiny tunnel…', 'it feels warm down there'],
+  creekSign3: ['Warm stones!', 'Rest here to hatch'],
+  creekSign4: ['Jump, then DASH', 'across the thorns!'],
+  creekSign5: ['The nest is past', 'this rock…'],
+  creekSign6: ['Legs sink! Tuck (↓)', 'to float — or fly'],
+  peakSign0: ['Huge gap ahead!', 'Hold → all the way down'],
+  peakSign1: ['Icicles drop when you', 'pass under — keep rolling!'],
+  peakSign2: ['Warm steam vent', 'Rest here to hatch'],
+  peakSign3: ['3 rocks, 3 cracks.', 'Not a single one to spare!'],
+  peakSign4: ['Crumbling stones', "won't hold you long"],
+  peakSign5: ['Warm air rises!', 'Mind the crows…'],
+  hollowSign0: ['Fourth egg, same deal.', 'One life — but you know the tricks now!'],
+  hollowSign1: ['Eggs float, remember?', 'Glide across, nice and easy'],
+  hollowSign2: ['Warm vents!', 'Rest here to hatch'],
+  hollowSign3: ['3 rocks, 3 cracks —', 'same rule works down here too'],
+  hollowSign4: ['Crumbling ice!', 'Fall in? Tuck (↓) and float!'],
+  hollowSign5: ['Icicles above, crows ahead —', "don't stop to admire the view"],
+  hollowSign6: ['Big gap ahead!', 'Get a running start'],
+  hollowSign7: ['Last rock, last crack.', 'Break it — then fly!'],
+  canyonSign0: ['Fifth egg, one life.', 'You know the drill by now'],
+  canyonSign1: ['Hop the thorns!'],
+  canyonSign2: ['Warm sand!', 'Rest here to hatch'],
+  canyonSign3: ['Something sleeps', 'behind that wall…'],
+  canyonSign4: ["RUN and it'll catch you!", 'Tuck (↓) and roll instead'],
+  canyonSign5: ['Untuck, dash, tuck again —', "quick, it's gaining!"],
+  canyonSign6: ['Big drop ahead!', 'JUMP it!'],
+  canyonSign7: ["It's wedged in there now —", 'safe to hop over'],
+  levelRestarted: 'Level restarted',
+  crack1: 'CRACK!', crackMulti: 'CRACK CRACK!',
+  crackSub: left => `${left} more hit${left > 1 ? 's' : ''} and you'll hatch`,
+  wallHitTitle: 'OUCH! Wall hit',
+  wallHitSub: left => `That cracked your shell…  ${left} hit${left > 1 ? 's' : ''} left before you hatch`,
+  legsTitle: 'LEGS!',
+  legsSub: 'The warmth made you sprout legs!   Run · Jump · DASH (SHIFT) to smash rocks',
+  hatchedSoonTitle: 'YOU HATCHED… too soon!',
+  hatchedSoonSub: "Birds can't dash — a rock still blocks the way.  Hold R to retry the level",
+  hatchedTitle: 'YOU HATCHED!',
+  hatchedSub: 'Flap: JUMP in the air  ·  Glide: hold JUMP  ·  Fly home to the nest!',
+  bannerLevel: (n, name) => `LEVEL ${n} · ${name}`,
+  thornsTitle: 'OUCH! THORNS', thornsSub: "Your shell couldn't take the prickles.",
+  fallTitle: 'WHOOPS!', fallSub: 'That was a long, long way down.',
+  drownTitle: 'SPLASH!', drownSub: 'Only a round egg floats — legs and wings sink.',
+  beetleTitle: 'CHOMP!', beetleSub: 'Beetles bite. Land on their backs instead!',
+  crowTitle: 'CAW!', crowSub: 'A crow snatched you right out of the air.',
+  icicleTitle: 'BONK!', icicleSub: 'Icicles drop when you stop underneath them.',
+  boulderTitle: 'CRUSH!', boulderSub: 'Running just made it faster. Tuck and roll next time!',
+  levelLabel: (n, name) => `Level ${n} · ${name}`,
+  seedsTimeLine: (got, total, time) => `${got} / ${total} seeds   ·   ${time}`,
+  escLevelSelect: 'ESC  level select',
+  retryLevel: n => `retry level ${n}`,
+  tapTo: what => `Tap to ${what}`,
+  pressEnterTo: what => `Press ENTER to ${what}`,
+  levelCompleteTitle: n => `LEVEL ${n} COMPLETE!`,
+  unlockedNext: (n, name) => `Level ${n} · ${name} unlocked!`,
+  playIt: 'play it',
+  retryEscLine: 'R  retry this level   ·   ESC  level select',
+  winTitle: 'ALL FOUR EGGS ARE HOME!',
+  recordsLabel: 'Records:  ',
+  goToLevelSelect: 'go to level select',
+  retryThisLevel: 'R  retry this level',
+  seedsOf: (got, of) => `${got} / ${of} seeds`,
+  timeMissedLine: (time, missed) => `Time ${time}   +   ${missed} missed seed${missed === 1 ? '' : 's'} × 10 s`,
+  equalsScore: score => `= ${score}`,
+  firstRecord: '★ FIRST RECORD! ★',
+  newRecord: prev => `★ NEW RECORD! ★  (was ${prev})`,
+  recordWas: prev => `Record  ${prev}`,
+  pausedTitle: 'PAUSED',
+  resumeTouch: 'Tap ❚❚ to resume', resumeKeys: 'P / ESC to resume',
+  skipTouch: 'Tap JUMP to skip', skipKeys: 'SPACE to skip',
+};
+I18N.fr = {
+  brandTagline: 'Quatre œufs sont tombés du nid. Trouve la chaleur, casse ta coquille au bon moment, rentre au nid.',
+  touchControls: 'Contrôles tactiles', hideTouchControls: 'Masquer les contrôles',
+  rotateMsg: 'Tourne ton téléphone pour jouer',
+  formEgg: 'ŒUF', formLegs: 'ŒUF À PATTES', formBird: 'OISEAU',
+  abilEgg: 'roule · saute · flotte · passe dans les tunnels',
+  abilLegsTucked: 'recroquevillé : roule · flotte · passe dans les tunnels',
+  abilLegs: 'court · saute · dash · ↓ se recroqueviller',
+  abilBird: 'court · saute · bat des ailes · plane',
+  shellLabel: 'COQUILLE', hitsLeft: 'coups restants', flapsLabel: 'BATTEMENTS',
+  oneLife: 'UNE SEULE VIE',
+  rockBlocks: 'Un rocher bloque encore le chemin du nid… maintiens R pour recommencer le niveau',
+  restarting: 'Redémarrage du niveau…',
+  hintEgg: '← →  rouler   ·   ESPACE  sauter   ·   repose-toi au chaud pour éclore   ·   maintiens R  recommencer',
+  hintLegs: '← →  courir   ·   ESPACE  sauter   ·   MAJ  dash (les impacts te fissurent !)   ·   maintiens ↓  se recroqueviller   ·   maintiens R  recommencer',
+  hintBird: '← →  courir   ·   ESPACE  sauter / battre des ailes   ·   maintiens ESPACE  planer / monter   ·   maintiens R  recommencer',
+  titleChooseTouch: 'Touche un niveau pour jouer',
+  titleChooseKeys: '← →  choisir un niveau   ·   ESPACE / ENTRÉE  jouer',
+  titleRulesLine: 'Une vie par essai · les graines manquées ajoutent +10 s à ton temps · le dash casse les rochers mais CHAQUE impact te fissure',
+  titleTouchLegend: 'Joystick : bouger · tirer ↓ pour se recroqueviller   ·   boutons SAUT / DASH   ·   ⟲ maintenir pour recommencer',
+  titleKeysLegend: '← →  bouger   ·   ESPACE / Z  sauter   ·   MAJ / X  dash   ·   maintiens ↓  recroqueviller   ·   maintiens R  recommencer   ·   P  pause   ·   M  muet',
+  locked: '🔒 Verrouillé', noRecord: 'Aucun record',
+  levelCaps: n => `NIVEAU ${n}`,
+  finishToUnlock: n => `Termine le niveau ${n} pour déverrouiller`,
+  recordLabel: time => `Record  ${time}`,
+  forestName: 'Le Grand Arbre',
+  forestTag: 'Tu es tombé du nid ! Une seule vie — dévale la colline et trouve un coin chaud pour éclore',
+  creekName: 'Le Ruisseau',
+  creekTag: 'Le vent a soufflé le prochain œuf dans le ruisseau ! Les œufs flottent — pattes et ailes coulent',
+  peakName: 'Le Pic de la Tempête',
+  peakTag: 'Une tempête a emporté le dernier œuf en haut de la montagne ! Stalactites, corbeaux — et pas une fissure à perdre',
+  hollowName: 'Le Creux Gelé',
+  hollowTag: "Le dernier œuf a coulé à travers une fissure dans la glace ! Toutes tes astuces à la fois — sans rien à perdre",
+  canyonName: 'Le Canyon du Rocher',
+  canyonTag: 'Le prochain œuf a dégringolé dans un canyon brûlé de soleil ! Réveille le gros rocher, puis cours pour ta vie',
+  forestSign0: ['Dévale la colline !', 'Maintiens → pour aller plus vite'],
+  forestSign1: ['Retour à la colline ?', 'Saute sur le champignon !'],
+  forestSign2: ['Attention ! Foncer dans', "n'importe quel mur te fissure"],
+  forestSign3: ['Un coin chaud !', 'Repose-toi ici pour éclore…'],
+  forestSign4: ['Des pattes ? Grimpe', 'sur les branches →'],
+  forestSign5: ['Les scarabées mordent !', 'Saute sur leur dos'],
+  creekSign0: ['Les scarabées mordent !', 'Saute sur leur dos'],
+  creekSign1: ['Épines en dessous — saute !', 'Puis flotte pour traverser'],
+  creekSign2: ['Un tout petit tunnel…', 'ça semble chaud là-dedans'],
+  creekSign3: ['Pierres chaudes !', 'Repose-toi ici pour éclore'],
+  creekSign4: ['Saute, puis DASH', 'à travers les épines !'],
+  creekSign5: ['Le nid est juste', 'après ce rocher…'],
+  creekSign6: ['Les pattes coulent ! Recroqueville-toi (↓)', 'pour flotter — ou vole'],
+  peakSign0: ['Immense trou devant !', "Maintiens → jusqu'en bas"],
+  peakSign1: ['Les stalactites tombent quand tu', 'passes dessous — continue à rouler !'],
+  peakSign2: ['Bouche de vapeur chaude', 'Repose-toi ici pour éclore'],
+  peakSign3: ['3 rochers, 3 fissures.', 'Pas une seule à perdre !'],
+  peakSign4: ['Les pierres friables', 'ne tiendront pas longtemps'],
+  peakSign5: ["L'air chaud monte !", 'Attention aux corbeaux…'],
+  hollowSign0: ['Quatrième œuf, même règle.', 'Une vie — mais tu connais les astuces maintenant !'],
+  hollowSign1: ['Les œufs flottent, tu te rappelles ?', 'Glisse tranquillement par-dessus'],
+  hollowSign2: ['Bouches chaudes !', 'Repose-toi ici pour éclore'],
+  hollowSign3: ['3 rochers, 3 fissures —', 'même règle ici aussi'],
+  hollowSign4: ['Glace friable !', 'Tu tombes ? Recroqueville-toi (↓) et flotte !'],
+  hollowSign5: ['Stalactites en haut, corbeaux devant —', "ne t'arrête pas pour admirer la vue"],
+  hollowSign6: ['Grand trou devant !', "Prends de l'élan"],
+  hollowSign7: ['Dernier rocher, dernière fissure.', 'Casse-le — puis vole !'],
+  canyonSign0: ['Cinquième œuf, une vie.', 'Tu connais la chanson maintenant'],
+  canyonSign1: ['Saute par-dessus les épines !'],
+  canyonSign2: ['Sable chaud !', 'Repose-toi ici pour éclore'],
+  canyonSign3: ['Quelque chose dort', 'derrière ce mur…'],
+  canyonSign4: ["COURS et il t'attrapera !", 'Recroqueville-toi (↓) et roule plutôt'],
+  canyonSign5: ['Déplie-toi, dash, replie-toi —', "vite, il gagne du terrain !"],
+  canyonSign6: ['Grande chute devant !', 'SAUTE par-dessus !'],
+  canyonSign7: ['Il est coincé là maintenant —', 'tu peux sauter par-dessus sans risque'],
+  levelRestarted: 'Niveau redémarré',
+  crack1: 'CRAC !', crackMulti: 'CRAC CRAC !',
+  crackSub: left => `encore ${left} coup${left > 1 ? 's' : ''} et tu éclos`,
+  wallHitTitle: 'AÏE ! Mur percuté',
+  wallHitSub: left => `Ça a fissuré ta coquille…  encore ${left} coup${left > 1 ? 's' : ''} avant d'éclore`,
+  legsTitle: 'DES PATTES !',
+  legsSub: 'La chaleur t\'a fait pousser des pattes !   Cours · Saute · DASH (MAJ) pour casser les rochers',
+  hatchedSoonTitle: 'TU AS ÉCLOS… trop tôt !',
+  hatchedSoonSub: 'Les oiseaux ne peuvent pas dash — un rocher bloque encore le passage.  Maintiens R pour recommencer le niveau',
+  hatchedTitle: 'TU AS ÉCLOS !',
+  hatchedSub: 'Battre : SAUTE en l\'air  ·  Planer : maintiens SAUTER  ·  Vole jusqu\'au nid !',
+  bannerLevel: (n, name) => `NIVEAU ${n} · ${name}`,
+  thornsTitle: 'AÏE ! DES ÉPINES', thornsSub: "Ta coquille n'a pas supporté les piquants.",
+  fallTitle: 'OUPS !', fallSub: "C'était une looongue chute.",
+  drownTitle: 'SPLASH !', drownSub: 'Seul un œuf rond flotte — pattes et ailes coulent.',
+  beetleTitle: 'CROC !', beetleSub: 'Les scarabées mordent. Atterris plutôt sur leur dos !',
+  crowTitle: 'CROA !', crowSub: 'Un corbeau t\'a attrapé en plein vol.',
+  icicleTitle: 'BONK !', icicleSub: "Les stalactites tombent quand tu t'arrêtes dessous.",
+  boulderTitle: 'ÉCRASÉ !', boulderSub: 'Courir ne fait que l\'accélérer. Recroqueville-toi et roule la prochaine fois !',
+  levelLabel: (n, name) => `Niveau ${n} · ${name}`,
+  seedsTimeLine: (got, total, time) => `${got} / ${total} graines   ·   ${time}`,
+  escLevelSelect: 'ÉCHAP  sélection des niveaux',
+  retryLevel: n => `recommencer le niveau ${n}`,
+  tapTo: what => `Touche pour ${what}`,
+  pressEnterTo: what => `Appuie sur ENTRÉE pour ${what}`,
+  levelCompleteTitle: n => `NIVEAU ${n} TERMINÉ !`,
+  unlockedNext: (n, name) => `Niveau ${n} · ${name} débloqué !`,
+  playIt: 'jouer',
+  retryEscLine: 'R  recommencer ce niveau   ·   ÉCHAP  sélection des niveaux',
+  winTitle: 'LES QUATRE ŒUFS SONT RENTRÉS !',
+  recordsLabel: 'Records :  ',
+  goToLevelSelect: 'aller à la sélection des niveaux',
+  retryThisLevel: 'R  recommencer ce niveau',
+  seedsOf: (got, of) => `${got} / ${of} graines`,
+  timeMissedLine: (time, missed) => `Temps ${time}   +   ${missed} graine${missed === 1 ? '' : 's'} manquée${missed === 1 ? '' : 's'} × 10 s`,
+  equalsScore: score => `= ${score}`,
+  firstRecord: '★ PREMIER RECORD ! ★',
+  newRecord: prev => `★ NOUVEAU RECORD ! ★  (était ${prev})`,
+  recordWas: prev => `Record  ${prev}`,
+  pausedTitle: 'PAUSE',
+  resumeTouch: 'Touche ❚❚ pour reprendre', resumeKeys: 'P / ÉCHAP pour reprendre',
+  skipTouch: 'Touche SAUTER pour passer', skipKeys: 'ESPACE pour passer',
+};
+function tr(key, ...args) {
+  const d = I18N[lang] || I18N.en;
+  const v = key in d ? d[key] : I18N.en[key];
+  return typeof v === 'function' ? v(...args) : v;
+}
 
 // ============================ LEVELS ============================
 // Four levels, one life. In every level you start as an egg, find a warm spot to grow legs,
@@ -135,12 +380,12 @@ function buildForest() {
   REQUIRED = [[PLUG.c, PLUG.r]];
   seeds = [[44, 20], [37, 19], [27, 34], [69, 34], [70, 24], [11, 34], [3, 21], [3, 13], [67, 12]].map(([c, r]) => seedAt(c, r));
   signs = [
-    { c: 12, r: 17, t: ['Roll down the hill!', 'Hold → to go faster'] },
-    { c: 52, r: 25, t: ['Back to the hill?', 'Jump on the mushroom!'] },
-    { c: 59, r: 25, t: ['Careful! Dashing into', 'ANY wall cracks you'] },
-    { c: 23, r: 35, t: ['A warm spot!', 'Rest here to hatch…'] },
-    { c: 60, r: 35, t: ['Got legs? Climb', 'the branches up →'] },
-    { c: 52, r: 35, t: ['Beetles bite!', 'Hop on their backs'] },
+    { c: 12, r: 17, key: 'forestSign0' },
+    { c: 52, r: 25, key: 'forestSign1' },
+    { c: 59, r: 25, key: 'forestSign2' },
+    { c: 23, r: 35, key: 'forestSign3' },
+    { c: 60, r: 35, key: 'forestSign4' },
+    { c: 52, r: 35, key: 'forestSign5' },
   ];
   enemies = [beetle(44, 35, -1, 34, 56)];
 }
@@ -256,7 +501,7 @@ function parseLevel(src) {
       else if (ch === 'E') START = { c, r: r + 1 };
       else if (ch === 'G' || ch === 'P') REQUIRED.push([c, r]);
       else if (ch === 'w') WARM = WARM ? { c0: Math.min(WARM.c0, c), c1: Math.max(WARM.c1, c), r0: Math.min(WARM.r0, r), r1: Math.max(WARM.r1, r) } : { c0: c, c1: c, r0: r, r1: r };
-      else if (ch >= '1' && ch <= '9') signs.push({ c, r: r + 1, t: LV.signs[+ch - 1] });
+      else if (ch >= '1' && ch <= '9') signs.push({ c, r: r + 1, key: LV.signKeys[+ch - 1] });
     }
     map.push(line);
   }
@@ -312,14 +557,14 @@ function buildFrozenHollow() {
   ];
   for (const [c0, c1, row, spd, ph] of [[57, 68, 22, 2.4, 0], [92, 97, 19, 2.6, 0], [92, 97, 13, 2.9, 0.5], [92, 97, 7, 3.1, 0.25]]) enemies.push(crow(c0, c1, row, spd, ph));
   signs = [
-    { c: 3, r: 28, t: ['Fourth egg, same deal.', 'One life — but you know the tricks now!'] },
-    { c: 17, r: 28, t: ['Eggs float, remember?', 'Glide across, nice and easy'] },
-    { c: 35, r: 28, t: ['Warm vents!', 'Rest here to hatch'] },
-    { c: 39, r: 28, t: ['3 rocks, 3 cracks —', 'same rule works down here too'] },
-    { c: 49, r: 28, t: ['Crumbling ice!', 'Fall in? Tuck (↓) and float!'] },
-    { c: 57, r: 28, t: ['Icicles above, crows ahead —', "don't stop to admire the view"] },
-    { c: 67, r: 28, t: ['Big gap ahead!', 'Get a running start'] },
-    { c: 85, r: 28, t: ['Last rock, last crack.', 'Break it — then fly!'] },
+    { c: 3, r: 28, key: 'hollowSign0' },
+    { c: 17, r: 28, key: 'hollowSign1' },
+    { c: 35, r: 28, key: 'hollowSign2' },
+    { c: 39, r: 28, key: 'hollowSign3' },
+    { c: 49, r: 28, key: 'hollowSign4' },
+    { c: 57, r: 28, key: 'hollowSign5' },
+    { c: 67, r: 28, key: 'hollowSign6' },
+    { c: 85, r: 28, key: 'hollowSign7' },
   ];
 }
 
@@ -365,14 +610,14 @@ function buildBoulderHill() {
   ];
   seeds = [[12, 18], [22, 18], [29, 18], [38, 22], [46, 30], [51, 32], [62, 32], [64, 10], [6, 6]].map(([c, r]) => seedAt(c, r));
   signs = [
-    { c: 3, r: 21, t: ['Fifth egg, one life.', 'You know the drill by now'] },
-    { c: 7, r: 21, t: ['Hop the thorns!'] },
-    { c: 16, r: 21, t: ['Warm sand!', 'Rest here to hatch'] },
-    { c: 29, r: 21, t: ['Something sleeps', 'behind that wall…'] },
-    { c: 35, r: 22, t: ["RUN and it'll catch you!", 'Tuck (↓) and roll instead'] },
-    { c: 45, r: 32, t: ['Untuck, dash, tuck again —', "quick, it's gaining!"] },
-    { c: 51, r: 35, t: ['Big drop ahead!', 'JUMP it!'] },
-    { c: 57, r: 35, t: ["It's wedged in there now —", 'safe to hop over'] },
+    { c: 3, r: 21, key: 'canyonSign0' },
+    { c: 7, r: 21, key: 'canyonSign1' },
+    { c: 16, r: 21, key: 'canyonSign2' },
+    { c: 29, r: 21, key: 'canyonSign3' },
+    { c: 35, r: 22, key: 'canyonSign4' },
+    { c: 45, r: 32, key: 'canyonSign5' },
+    { c: 51, r: 35, key: 'canyonSign6' },
+    { c: 57, r: 35, key: 'canyonSign7' },
   ];
   // a gentle thermal along the upper canyon — lets a bird cruise the long way home without landing
   for (let r = 5; r <= 18; r++) for (let c = 0; c <= 63; c++) if (map[r][c] === 0) map[r][c] = 11;
@@ -414,36 +659,30 @@ const THEMES = {
 
 const LEVELS = [
   {
-    name: 'The Big Tree', tag: 'You fell out of the nest! One life — roll down the hill and find somewhere warm to hatch',
+    get name() { return tr('forestName'); }, get tag() { return tr('forestTag'); },
     theme: 'forest', build: buildForest, intro: 'nest', backdrop: forestBackdrop, bark: [[1, 3, 7, 29]],
     under: (c, r) => r >= 30, drips: (c, r) => r >= 27,
   },
   {
-    name: 'The Creek', tag: 'The wind blew the next egg into the creek! Eggs float — legs and wings sink',
+    get name() { return tr('creekName'); }, get tag() { return tr('creekTag'); },
     theme: 'creek', map: CREEK_MAP, intro: 'wind', nest: { c0: 95, c1: 99, r: 6 }, bark: [[95, 6, 99, 24]], decor: creekDecor, backdrop: creekBackdrop,
     caves: [[46, 19, 50, 19], [49, 19, 50, 22], [38, 23, 72, 29], [42, 30, 46, 31], [60, 30, 65, 31], [69, 17, 72, 22], [74, 14, 79, 15], [95, 18, 96, 22]],
-    signs: [
-      ['Beetles bite!', 'Hop on their backs'], ['Thorns below — hop!', 'Then float across'], ['A tiny tunnel…', 'it feels warm down there'],
-      ['Warm stones!', 'Rest here to hatch'], ['Jump, then DASH', 'across the thorns!'], ['The nest is past', 'this rock…'], ['Legs sink! Tuck (↓)', 'to float — or fly'],
-    ],
+    signKeys: ['creekSign0', 'creekSign1', 'creekSign2', 'creekSign3', 'creekSign4', 'creekSign5', 'creekSign6'],
   },
   {
-    name: 'Storm Peak', tag: 'A storm swept the last egg up the mountain! Icicles, crows — and not a crack to spare',
+    get name() { return tr('peakName'); }, get tag() { return tr('peakTag'); },
     theme: 'peak', map: PEAK_MAP, intro: 'wind', nest: { c0: 78, c1: 83, r: 4 }, openSky: true,
     caves: [[28, 28, 63, 33], [64, 33, 67, 33], [35, 34, 42, 35], [58, 21, 59, 27], [24, 28, 27, 37], [24, 38, 90, 45], [38, 46, 45, 46], [49, 46, 62, 46], [91, 4, 97, 45]],
     crows: [[92, 97, 37, 2.2, 0], [92, 97, 29, 2.6, 0.6], [92, 97, 21, 2.9, 0.25], [92, 97, 13, 3.1, 0.8], [66, 97, 1.4, 2.4, 0.4]],
-    signs: [
-      ['Huge gap ahead!', 'Hold → all the way down'], ['Icicles drop when you', 'pass under — keep rolling!'], ['Warm steam vent', 'Rest here to hatch'],
-      ['3 rocks, 3 cracks.', 'Not a single one to spare!'], ['Crumbling stones', "won't hold you long"], ['Warm air rises!', 'Mind the crows…'],
-    ],
+    signKeys: ['peakSign0', 'peakSign1', 'peakSign2', 'peakSign3', 'peakSign4', 'peakSign5'],
   },
   {
-    name: 'The Frozen Hollow', tag: "The last egg sank through a crack in the ice! Every trick you've learned — at once, with nothing to spare",
+    get name() { return tr('hollowName'); }, get tag() { return tr('hollowTag'); },
     theme: 'ice', build: buildFrozenHollow, intro: 'wind',
     caves: [[0, 18, 92, 39]],
   },
   {
-    name: 'Boulder Canyon', tag: 'The next egg tumbled into a sun-baked canyon! Wake the big rock, then run for your life',
+    get name() { return tr('canyonName'); }, get tag() { return tr('canyonTag'); },
     theme: 'canyon', build: buildBoulderHill, intro: 'nest',
     caves: [[0, 9, 31, 24], [34, 9, 72, 37]],
   },
@@ -563,9 +802,9 @@ const SFX = {
 
 // ============================ PLAYER ============================
 const FORMS = {
-  egg:  { name: 'EGG',       w: 22, h: 26, jump: 7.5, max: 6,   g: 0.5 },
-  legs: { name: 'LEGGY EGG', w: 22, h: 40, jump: 11,  max: 4.6, g: 0.55, dash: true, dashSpd: 12, dashT: 12 },
-  bird: { name: 'BIRD',      w: 24, h: 34, jump: 10,  max: 4.6, g: 0.5,  flaps: 5, flap: 7.5 },
+  egg:  { get name() { return tr('formEgg'); },  w: 22, h: 26, jump: 7.5, max: 6,   g: 0.5 },
+  legs: { get name() { return tr('formLegs'); }, w: 22, h: 40, jump: 11,  max: 4.6, g: 0.55, dash: true, dashSpd: 12, dashT: 12 },
+  bird: { get name() { return tr('formBird'); }, w: 24, h: 34, jump: 10,  max: 4.6, g: 0.5,  flaps: 5, flap: 7.5 },
 };
 
 let P;
@@ -751,7 +990,7 @@ function beginLevel(i, quick = false) {
   levelT0 = timer; introT = 0; leafBurst = false;
   if (quick) {
     state = 'play'; P.sx = 0.7; P.sy = 1.3;
-    showBanner('Level restarted', LV.name, 120);
+    showBanner(tr('levelRestarted'), LV.name, 120);
   } else {
     state = 'intro';
     if (LV.intro === 'nest') { P.x = NEST.c0 * TS + 70; P.y = NEST.r * TS - P.h - 6; P.face = 1; }
@@ -784,7 +1023,7 @@ function updateIntro() {
     P.y = landY; P.x = clamp(P.x, landX - 40, landX + 40); P.vy = 0; P.onGround = true; P.sx = 1.35; P.sy = 0.7; shake = 8;
     P.angle = 0; SFX.land(); puff(P.x + P.w / 2, P.y + P.h, 10, 'rgba(230,210,180,0.9)', 2, 22, 5);
     state = 'play';
-    showBanner(`LEVEL ${levelNo + 1} · ${LV.name}`, LV.tag, 340);
+    showBanner(tr('bannerLevel', levelNo + 1, LV.name), LV.tag, 340);
   }
   updateCamera();
 }
@@ -1141,8 +1380,8 @@ function crackShell(brokeRock) {
   shards(P.x + P.w / 2, P.y + 8, 5, ['#fffaf0', '#ecd7b3'], 2.5, 0.3, 5, 35);
   if (P.cracks >= 3) { startTransform('bird'); return; }
   const left = 3 - P.cracks;
-  if (brokeRock) showBanner(P.cracks === 1 ? 'CRACK!' : 'CRACK CRACK!', `${left} more hit${left > 1 ? 's' : ''} and you'll hatch`, 170);
-  else showBanner('OUCH! Wall hit', `That cracked your shell…  ${left} hit${left > 1 ? 's' : ''} left before you hatch`, 190);
+  if (brokeRock) showBanner(P.cracks === 1 ? tr('crack1') : tr('crackMulti'), tr('crackSub', left), 170);
+  else showBanner(tr('wallHitTitle'), tr('wallHitSub', left), 190);
 }
 
 function startTransform(to) {
@@ -1178,7 +1417,7 @@ function updateTransform() {
     }
     if (P.trans === 0) {
       P.angle = 0; P.legGrow = 1;
-      showBanner('LEGS!', 'The warmth made you sprout legs!   Run · Jump · DASH (SHIFT) to smash rocks', 300);
+      showBanner(tr('legsTitle'), tr('legsSub'), 300);
       P.sy = 1.3; P.sx = 0.8;
     }
   } else {
@@ -1192,8 +1431,8 @@ function updateTransform() {
     }
     if (P.trans === 0) {
       P.flaps = FORMS.bird.flaps;
-      if (requiredIntact()) showBanner('YOU HATCHED… too soon!', 'Birds can\'t dash — a rock still blocks the way.  Hold R to retry the level', 400);
-      else showBanner('YOU HATCHED!', 'Flap: JUMP in the air  ·  Glide: hold JUMP  ·  Fly home to the nest!', 320);
+      if (requiredIntact()) showBanner(tr('hatchedSoonTitle'), tr('hatchedSoonSub'), 400);
+      else showBanner(tr('hatchedTitle'), tr('hatchedSub'), 320);
     }
   }
   P.sx = lerp(P.sx, 1, 0.12); P.sy = lerp(P.sy, 1, 0.12);
@@ -1806,7 +2045,8 @@ function drawSigns() {
   for (const s of signs) {
     const x = s.c * TS + 16, y = s.r * TS;
     if (x < camX - 200 || x > camX + VW + 200) continue;
-    const w = Math.max(...s.t.map(l => ctx.measureText(l).width)) + 20, h = s.t.length * 15 + 10;
+    const lines = tr(s.key);
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 20, h = lines.length * 15 + 10;
     ctx.strokeStyle = TH.outline; ctx.lineWidth = 2.5;
     ctx.fillStyle = ART.bark; ctx.beginPath(); ctx.roundRect(x - 3.5, y - 26, 7, 26, 2); ctx.fill(); ctx.stroke();
     const bgr = ctx.createLinearGradient(0, y - 26 - h, 0, y - 26);
@@ -1816,7 +2056,7 @@ function drawSigns() {
     ctx.fillStyle = ART.barkDark;
     for (const nx of [x - w / 2 + 6, x + w / 2 - 6]) { ctx.beginPath(); ctx.arc(nx, y - 26 - h + 6, 1.8, 0, 7); ctx.fill(); }
     ctx.fillStyle = '#4a3020';
-    s.t.forEach((l, i) => ctx.fillText(l, x, y - 26 - h + 13 + i * 15));
+    lines.forEach((l, i) => ctx.fillText(l, x, y - 26 - h + 13 + i * 15));
   }
 }
 
@@ -2082,12 +2322,12 @@ function drawHUD() {
   else { ctx.translate(0, -18); drawEggBody(12, 14.5, P.cracks, 1, false); if (P.form === 'legs') { ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-4, 14); ctx.lineTo(-4, 19); ctx.moveTo(4, 14); ctx.lineTo(4, 19); ctx.stroke(); } }
   ctx.restore();
   txt(F.name, 70, top + 18, 18, '#ffe9a8');
-  const abil = { egg: 'roll · hop · floats · fits tunnels', legs: P.tucked ? 'tucked in: roll · float · fit tunnels' : 'run · jump · dash · ↓ tuck & roll', bird: 'run · jump · flap · glide' }[P.form];
+  const abil = { egg: tr('abilEgg'), legs: P.tucked ? tr('abilLegsTucked') : tr('abilLegs'), bird: tr('abilBird') }[P.form];
   txt(abil, 70, top + 42, 13, '#ffffff', 'left', 500);
 
   if (P.form !== 'bird') {
     panel(12, top + 68, 200, 34);
-    txt('SHELL', 24, top + 85, 13, '#ffe9a8');
+    txt(tr('shellLabel'), 24, top + 85, 13, '#ffe9a8');
     for (let i = 0; i < 3; i++) {
       ctx.save(); ctx.translate(92 + i * 28, top + 85); ctx.scale(0.55, 0.55);
       const broken = i >= 3 - P.cracks;
@@ -2095,10 +2335,10 @@ function drawHUD() {
       if (broken) { ctx.beginPath(); ctx.moveTo(-3, -14); ctx.lineTo(2, -5); ctx.lineTo(-3, 1); ctx.lineTo(3, 9); ctx.stroke(); }
       ctx.restore();
     }
-    if (P.form === 'legs') txt('hits left', 175, top + 85, 11, 'rgba(255,255,255,0.75)', 'center', 500);
+    if (P.form === 'legs') txt(tr('hitsLeft'), 175, top + 85, 11, 'rgba(255,255,255,0.75)', 'center', 500);
   } else {
     panel(12, top + 68, 170, 34);
-    txt('FLAPS', 24, top + 85, 13, '#ffe9a8');
+    txt(tr('flapsLabel'), 24, top + 85, 13, '#ffe9a8');
     for (let i = 0; i < FORMS.bird.flaps; i++) {
       ctx.fillStyle = i < P.flaps ? '#ffd23f' : 'rgba(255,255,255,0.2)';
       ctx.beginPath(); ctx.ellipse(86 + i * 20, top + 85, 7, 4, -0.5, 0, 7); ctx.fill();
@@ -2107,30 +2347,26 @@ function drawHUD() {
 
   const rx = VW - (touchMode ? 232 : 192);
   panel(rx, top, 180, 82);
-  txt(`LEVEL ${levelNo + 1}`, rx + 14, top + 17, 13, '#ffe9a8');
+  txt(tr('levelCaps', levelNo + 1), rx + 14, top + 17, 13, '#ffe9a8');
   txt(LV.name, rx + 74, top + 17, 13, '#ffffff', 'left', 500);
   seedIcon(rx + 22, top + 43);
   txt(`${seedCount} / ${seeds.length}`, rx + 36, top + 43, 17);
   txt('⏱ ' + fmtTime(timer - levelT0), rx + 98, top + 43, 14, '#fff', 'left', 500);
   const best = progress.best[levelNo];
-  txt(best === null ? 'Record  —' : `Record  ${fmtTime(best)}`, rx + 14, top + 67, 12, 'rgba(255,233,168,0.9)', 'left', 500);
+  txt(best === null ? tr('recordLabel', '—') : tr('recordLabel', fmtTime(best)), rx + 14, top + 67, 12, 'rgba(255,233,168,0.9)', 'left', 500);
 
   if (!touchMode) {
-    const hint = {
-      egg: '← →  roll   ·   SPACE  hop   ·   rest in a warm spot to hatch   ·   hold R  restart level',
-      legs: '← →  run   ·   SPACE  jump   ·   SHIFT  dash (impacts crack you!)   ·   hold ↓  tuck & roll   ·   hold R  restart level',
-      bird: '← →  run   ·   SPACE  jump / flap   ·   hold SPACE  glide / rise   ·   hold R  restart level',
-    }[P.form];
+    const hint = { egg: tr('hintEgg'), legs: tr('hintLegs'), bird: tr('hintBird') }[P.form];
     txt(hint, VW / 2, VH - 16, 13, 'rgba(255,255,255,0.92)', 'center', 500);
   }
-  txt('ONE LIFE', VW / 2, touchMode ? 88 : 22, 12, 'rgba(255,210,190,0.85)', 'center', 700);
+  txt(tr('oneLife'), VW / 2, touchMode ? 88 : 22, 12, 'rgba(255,210,190,0.85)', 'center', 700);
 
-  if (state === 'play' && P.form === 'bird' && requiredIntact() && !banner) txt('A rock still blocks the way to the nest… hold R to restart the level', VW / 2, VH - 44, 16, '#ffb0a0', 'center');
+  if (state === 'play' && P.form === 'bird' && requiredIntact() && !banner) txt(tr('rockBlocks'), VW / 2, VH - 44, 16, '#ffb0a0', 'center');
 
   if (resetHold > 0) {
     const k = resetHold / 45;
     ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(VW / 2, VH / 2, 34, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
-    txt('Restarting level…', VW / 2, VH / 2 + 56, 16, '#ffe066', 'center');
+    txt(tr('restarting'), VW / 2, VH / 2 + 56, 16, '#ffe066', 'center');
   }
 
   if (banner) {
@@ -2145,7 +2381,7 @@ function drawHUD() {
 function fmtTime(f) { const s = f / 60; return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(Math.floor((s % 1) * 10))}`; }
 
 function drawOverlay(alpha) { ctx.fillStyle = `rgba(25,15,40,${alpha})`; ctx.fillRect(0, 0, VW, VH); }
-const pressKey = what => touchMode ? `Tap to ${what}` : `Press ENTER to ${what}`;
+const pressKey = what => touchMode ? tr('tapTo', what) : tr('pressEnterTo', what);
 
 function drawTitle() {
   drawOverlay(0.5);
@@ -2161,68 +2397,64 @@ function drawTitle() {
   txt('→', cx + 60, cy - 10, 30, '#ffe9a8', 'center');
 
   txt('EGGVENTURE', cx, 74, 64, '#ffe066', 'center');
-  txt('Four eggs fell from the nest. Get warm, crack wisely, fly home.', cx, 274, 20, '#ffffff', 'center', 500);
+  txt(tr('brandTagline'), cx, 274, 20, '#ffffff', 'center', 500);
   for (let i = 0; i < LEVELS.length; i++) {
     const { x, y, w, h } = levelCard(i), open = i < progress.unlocked, sel = i === selLevel, best = progress.best[i];
     panel(x, y, w, h);
     if (sel) { ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.stroke(); }
-    txt(`LEVEL ${i + 1}`, x + w / 2, y + 17, 13, open ? '#ffe9a8' : 'rgba(255,255,255,0.4)', 'center');
-    txt(open ? LEVELS[i].name : '🔒 Locked', x + w / 2, y + 38, 17, open ? '#ffffff' : 'rgba(255,255,255,0.45)', 'center');
-    txt(!open ? `Finish level ${i} to unlock` : best === null ? 'No record yet' : `Record  ${fmtTime(best)}`, x + w / 2, y + 60, 12, open ? '#b8ffb0' : 'rgba(255,255,255,0.4)', 'center', 500);
+    txt(tr('levelCaps', i + 1), x + w / 2, y + 17, 13, open ? '#ffe9a8' : 'rgba(255,255,255,0.4)', 'center');
+    txt(open ? LEVELS[i].name : tr('locked'), x + w / 2, y + 38, 17, open ? '#ffffff' : 'rgba(255,255,255,0.45)', 'center');
+    txt(!open ? tr('finishToUnlock', i) : best === null ? tr('noRecord') : tr('recordLabel', fmtTime(best)), x + w / 2, y + 60, 12, open ? '#b8ffb0' : 'rgba(255,255,255,0.4)', 'center', 500);
   }
-  if (Math.floor(frame / 30) % 2 === 0) txt(touchMode ? 'Tap a level to play' : '← →  choose a level   ·   SPACE / ENTER  play', cx, 408, 20, '#b8ffb0', 'center');
-  txt('One life per try · missed seeds add +10 s to your time · dashing smashes rocks but EVERY impact cracks you', cx, 440, 13, 'rgba(255,255,255,0.88)', 'center', 500);
-  if (touchMode) txt('Stick: move · pull ↓ to tuck   ·   JUMP / DASH buttons   ·   ⟲ hold to restart the level', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
-  else txt('← →  move   ·   SPACE / Z  jump   ·   SHIFT / X  dash   ·   hold ↓  tuck legs   ·   hold R  restart level   ·   P  pause   ·   M  mute', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
+  if (Math.floor(frame / 30) % 2 === 0) txt(touchMode ? tr('titleChooseTouch') : tr('titleChooseKeys'), cx, 408, 20, '#b8ffb0', 'center');
+  txt(tr('titleRulesLine'), cx, 440, 13, 'rgba(255,255,255,0.88)', 'center', 500);
+  if (touchMode) txt(tr('titleTouchLegend'), cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
+  else txt(tr('titleKeysLegend'), cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
 }
 function levelCard(i) { const n = LEVELS.length, w = Math.min(250, (VW - 60) / n - 18), gap = 18, x0 = VW / 2 - (w * n + gap * (n - 1)) / 2; return { x: x0 + i * (w + gap), y: 300, w, h: 78 }; }
 function levelCardAt(x, y) { for (let i = 0; i < LEVELS.length; i++) { const c = levelCard(i); if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return i; } return -1; }
 
-const DEATHS = {
-  thorns: ['OUCH! THORNS', 'Your shell couldn\'t take the prickles.'],
-  fall:   ['WHOOPS!', 'That was a long, long way down.'],
-  drown:  ['SPLASH!', 'Only a round egg floats — legs and wings sink.'],
-  beetle: ['CHOMP!', 'Beetles bite. Land on their backs instead!'],
-  crow:   ['CAW!', 'A crow snatched you right out of the air.'],
-  icicle: ['BONK!', 'Icicles drop when you stop underneath them.'],
-  boulder: ['CRUSH!', 'Running just made it faster. Tuck and roll next time!'],
+const DEATH_KEYS = {
+  thorns: ['thornsTitle', 'thornsSub'], fall: ['fallTitle', 'fallSub'], drown: ['drownTitle', 'drownSub'],
+  beetle: ['beetleTitle', 'beetleSub'], crow: ['crowTitle', 'crowSub'], icicle: ['icicleTitle', 'icicleSub'],
+  boulder: ['boulderTitle', 'boulderSub'],
 };
 function drawGameOver() {
   drawOverlay(Math.min(0.6, endT / 40));
-  const [title, sub] = DEATHS[deathCause] || DEATHS.fall;
-  txt(title, VW / 2, 150, 56, '#ff8a70', 'center');
-  txt(sub, VW / 2, 205, 20, '#ffffff', 'center', 500);
-  txt(`Level ${levelNo + 1} · ${LV.name}`, VW / 2, 280, 22, '#ffe9a8', 'center');
-  txt(`${seedCount} / ${seeds.length} seeds   ·   ${fmtTime(timer - levelT0)}`, VW / 2, 316, 18, '#fff', 'center', 500);
-  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey(`retry level ${levelNo + 1}`), VW / 2, 400, 22, '#b8ffb0', 'center');
-  if (endT > 45 && !touchMode) txt('ESC  level select', VW / 2, 440, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+  const [titleKey, subKey] = DEATH_KEYS[deathCause] || DEATH_KEYS.fall;
+  txt(tr(titleKey), VW / 2, 150, 56, '#ff8a70', 'center');
+  txt(tr(subKey), VW / 2, 205, 20, '#ffffff', 'center', 500);
+  txt(tr('levelLabel', levelNo + 1, LV.name), VW / 2, 280, 22, '#ffe9a8', 'center');
+  txt(tr('seedsTimeLine', seedCount, seeds.length, fmtTime(timer - levelT0)), VW / 2, 316, 18, '#fff', 'center', 500);
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey(tr('retryLevel', levelNo + 1)), VW / 2, 400, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt(tr('escLevelSelect'), VW / 2, 440, 15, 'rgba(255,255,255,0.8)', 'center', 500);
 }
 // time + 10 s per missed seed, and whether it beat the record
 function drawScore(y) {
   const r = result;
   seedIcon(VW / 2 - 70, y, 1.4);
-  txt(`${r.seeds} / ${r.of} seeds`, VW / 2 - 50, y, 24, '#fff');
-  txt(`Time ${fmtTime(r.time)}   +   ${r.missed} missed seed${r.missed === 1 ? '' : 's'} × 10 s`, VW / 2, y + 42, 18, '#fff', 'center', 500);
-  txt(`= ${fmtTime(r.score)}`, VW / 2, y + 82, 34, '#ffe9a8', 'center');
-  if (r.record) txt(r.prev === null ? '★ FIRST RECORD! ★' : `★ NEW RECORD! ★  (was ${fmtTime(r.prev)})`, VW / 2, y + 122, 20, '#b8ffb0', 'center');
-  else txt(`Record  ${fmtTime(r.prev)}`, VW / 2, y + 122, 18, '#ffd0a0', 'center', 500);
+  txt(tr('seedsOf', r.seeds, r.of), VW / 2 - 50, y, 24, '#fff');
+  txt(tr('timeMissedLine', fmtTime(r.time), r.missed), VW / 2, y + 42, 18, '#fff', 'center', 500);
+  txt(tr('equalsScore', fmtTime(r.score)), VW / 2, y + 82, 34, '#ffe9a8', 'center');
+  if (r.record) txt(r.prev === null ? tr('firstRecord') : tr('newRecord', fmtTime(r.prev)), VW / 2, y + 122, 20, '#b8ffb0', 'center');
+  else txt(tr('recordWas', fmtTime(r.prev)), VW / 2, y + 122, 18, '#ffd0a0', 'center', 500);
 }
 function drawLevelClear() {
   drawOverlay(0.55);
   const next = LEVELS[levelNo + 1];
-  txt(`LEVEL ${levelNo + 1} COMPLETE!`, VW / 2, 100, 50, '#ffe066', 'center');
+  txt(tr('levelCompleteTitle', levelNo + 1), VW / 2, 100, 50, '#ffe066', 'center');
   drawScore(170);
-  txt(`Level ${levelNo + 2} · ${next.name} unlocked!`, VW / 2, 350, 20, '#ffe9a8', 'center');
-  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey('play it'), VW / 2, 410, 22, '#b8ffb0', 'center');
-  if (endT > 45 && !touchMode) txt('R  retry this level   ·   ESC  level select', VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+  txt(tr('unlockedNext', levelNo + 2, next.name), VW / 2, 350, 20, '#ffe9a8', 'center');
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey(tr('playIt')), VW / 2, 410, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt(tr('retryEscLine'), VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
 }
 function drawWin() {
   drawOverlay(0.55);
-  txt('ALL FOUR EGGS ARE HOME!', VW / 2, 90, 46, '#ffe066', 'center');
+  txt(tr('winTitle'), VW / 2, 90, 46, '#ffe066', 'center');
   drawScore(160);
-  txt('Records:  ' + LEVELS.map((L, i) => `${i + 1}. ${progress.best[i] === null ? '—' : fmtTime(progress.best[i])}`).join('   ·   '), VW / 2, 350, 17, '#ffe9a8', 'center', 500);
-  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey('go to level select'), VW / 2, 410, 22, '#b8ffb0', 'center');
-  if (endT > 45 && !touchMode) txt('R  retry this level', VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+  txt(tr('recordsLabel') + LEVELS.map((L, i) => `${i + 1}. ${progress.best[i] === null ? '—' : fmtTime(progress.best[i])}`).join('   ·   '), VW / 2, 350, 17, '#ffe9a8', 'center', 500);
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey(tr('goToLevelSelect')), VW / 2, 410, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt(tr('retryThisLevel'), VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
 }
 
 function draw() {
@@ -2245,31 +2477,44 @@ function draw() {
   drawAtmosphere();
 
   if (state === 'title') drawTitle();
-  else if (state === 'intro') txt(touchMode ? 'Tap JUMP to skip' : 'SPACE to skip', VW - 20, VH - 20, 13, 'rgba(255,255,255,0.8)', 'right', 500);
+  else if (state === 'intro') txt(touchMode ? tr('skipTouch') : tr('skipKeys'), VW - 20, VH - 20, 13, 'rgba(255,255,255,0.8)', 'right', 500);
   else {
     drawHUD();
     if (state === 'over') drawGameOver();
     if (state === 'clear') drawLevelClear();
     if (state === 'win') drawWin();
-    if (paused) { drawOverlay(0.4); txt('PAUSED', VW / 2, VH / 2 - 10, 48, '#ffe066', 'center'); txt(touchMode ? 'Tap ❚❚ to resume' : 'P / ESC to resume', VW / 2, VH / 2 + 34, 18, '#fff', 'center', 500); }
+    if (paused) { drawOverlay(0.4); txt(tr('pausedTitle'), VW / 2, VH / 2 - 10, 48, '#ffe066', 'center'); txt(touchMode ? tr('resumeTouch') : tr('resumeKeys'), VW / 2, VH / 2 + 34, 18, '#fff', 'center', 500); }
   }
 }
 
 // ============================ TOUCH CONTROLS ============================
 // Shown automatically on phones/tablets; the corner button toggles them on any device (remembered).
 let touchMode = false;
+function refreshStaticText() {
+  document.getElementById('touchToggle').textContent = tr(touchMode ? 'hideTouchControls' : 'touchControls');
+  document.getElementById('rotateMsg').textContent = tr('rotateMsg');
+  document.getElementById('langToggle').textContent = lang === 'en' ? 'FR' : 'EN';
+  document.documentElement.lang = lang;
+}
 function setTouchMode(on) {
   touchMode = on;
   document.body.classList.toggle('touch', on);
-  document.getElementById('touchToggle').textContent = on ? 'Hide touch controls' : 'Touch controls';
+  refreshStaticText();
   try { localStorage.setItem('eggventure-touch', on ? '1' : '0'); } catch (e) {}
+}
+function setLang(l) {
+  lang = l;
+  refreshStaticText();
+  try { localStorage.setItem('eggventure-lang', l); } catch (e) {}
 }
 (() => {
   let saved = null;
   try { saved = localStorage.getItem('eggventure-touch'); } catch (e) {}
   setTouchMode(saved !== null ? saved === '1' : matchMedia('(hover: none) and (pointer: coarse)').matches);
 })();
+refreshStaticText();
 document.getElementById('touchToggle').addEventListener('click', e => { setTouchMode(!touchMode); e.currentTarget.blur(); });
+document.getElementById('langToggle').addEventListener('click', e => { setLang(lang === 'en' ? 'fr' : 'en'); e.currentTarget.blur(); });
 
 function setKey(k, on) { if (on && !keys[k]) pressedK[k] = true; keys[k] = on; if (on) initAudio(); }
 
