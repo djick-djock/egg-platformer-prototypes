@@ -832,7 +832,7 @@ function icicle(c, r) { return { kind: 'icicle', x: c * TS + 16, y: r * TS, y0: 
 // if it rolls into the pit spanned by plugC0..plugC1 it wedges there and plugs it with rock (safe to hop over)
 function boulder(c, r, o) {
   const size = o.size ?? 76;
-  return { kind: 'boulder', x: c * TS, y: r * TS, w: size, h: size, vx: 0, vy: 0, face: o.dir ?? 1, rot: 0, active: false, lodged: false, onGround: false,
+  return { kind: 'boulder', x: c * TS, y: r * TS, w: size, h: size, vx: 0, vy: 0, face: o.dir ?? 1, rot: 0, active: false, lodged: false, onGround: false, wake: 0,
     trigC: o.trigC, trigR: o.trigR, maxSpd: o.maxSpd ?? 9, rollAcc: o.rollAcc ?? 0.18, plugC0: o.plugC0, plugC1: o.plugC1, plugRow: o.plugRow };
 }
 
@@ -872,7 +872,16 @@ function updateEnemies() {
       }
     } else if (e.kind === 'boulder') {
       if (!e.active) {
-        if (tileAt(e.trigC, e.trigR) !== 2) { e.active = true; shake = Math.max(shake, 6); SFX.creak(); }
+        if (e.wake > 0) {
+          // waking up: pebbles and dust sift off the ledge before the boulder itself actually drops
+          e.wake--;
+          if (frame % 5 === 0) shards(e.x + rand(6, e.w - 6), e.y + e.h - 4, 1, [ART.rock, ART.rockMid, ART.rockDark], 1, 0.25, 4, 36);
+          if (frame % 3 === 0) puff(e.x + rand(0, e.w), e.y + e.h - 2, 1, 'rgba(180,150,110,0.45)', 0.4, 28, 3, 0.12);
+          if (e.wake === 20) shake = Math.max(shake, 2);
+          if (e.wake === 0) { e.active = true; shake = Math.max(shake, 6); SFX.creak(); }
+          continue;
+        }
+        if (tileAt(e.trigC, e.trigR) !== 2) { e.wake = 55; SFX.creak(); }
         continue;
       }
       if (e.lodged) continue;
