@@ -69,7 +69,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const hash = (x, y) => (((x * 73856093) ^ (y * 19349663)) >>> 0);
 
 // ============================ LEVELS ============================
-// Three levels, one life. In every level you start as an egg, find a warm spot to grow legs,
+// Four levels, one life. In every level you start as an egg, find a warm spot to grow legs,
 // smash your way through with dashes (every impact cracks you, the 3rd crack hatches you),
 // then fly to the nest as a bird. Your form decides where you can go:
 //   EGG  – tiny (fits 1-tile tunnels), low hop, rolls fast downhill, FLOATS.
@@ -264,6 +264,65 @@ function parseLevel(src) {
 const seedAt = (c, r) => ({ x: c * TS + 16, y: r * TS + 16, got: false, ph: Math.random() * 6 });
 const inRects = (rects, c, r) => rects.some(([c0, r0, c1, r1]) => c >= c0 && c <= c1 && r >= r0 && r <= r1);
 
+// ---------- Level 4: the frozen hollow (hand-built) ----------
+// Everything you've learned, at once: float across water as an egg, then hatch and spend your one
+// dash budget (3 cracks, 3 required rock walls — not a single one to spare) past icicles, crumbling
+// ice and a beetle-and-crow gauntlet, before flying up a chimney of rising warm air into the nest.
+function buildFrozenHollow() {
+  COLS = 100; ROWS = 40;
+  map = Array.from({ length: ROWS }, () => new Array(COLS).fill(1));
+  const set = (c0, r0, c1, r1, t) => { for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) map[y][x] = t; };
+  const carve = (c0, r0, c1, r1) => set(c0, r0, c1, r1, 0);
+
+  START = { c: 3, r: 28 };
+  carve(0, 18, 97, 27);                                                 // main cave corridor
+
+  set(11, 28, 12, 28, 3);                                               // thorn hop (egg)
+
+  const poolC0 = 18, poolC1 = 31;                                       // meltwater pool — float across
+  carve(poolC0, 28, poolC1, 33);
+  set(poolC0, 28, poolC1, 33, 4);                                       // surface flush with both banks
+
+  WARM = { c0: 35, c1: 38, r0: 26, r1: 28 };                            // geothermal vent — hatch to legs
+
+  set(40, 18, 40, 27, 2);                                               // required rock wall 1 (floor stays solid beneath)
+
+  set(47, 28, 48, 28, 3);                                               // thorn hop (legs)
+
+  carve(50, 29, 53, 33); set(50, 29, 53, 33, 4);                        // crumbling bridge over water —
+  set(50, 28, 53, 28, 10);                                              // tuck (↓) fast if you fall in!
+
+  set(55, 18, 56, 27, 2);                                               // required rock wall 2 (floor stays solid beneath)
+
+  carve(74, 28, 77, 33); set(74, 28, 77, 33, 4);                        // gap — tuck and roll for speed, or swim back (flush banks)
+
+  set(86, 18, 87, 27, 2);                                               // required rock wall 3 — last crack (floor stays solid)
+
+  carve(93, 0, 96, 3);                                                  // open sky above the chimney
+  carve(93, 4, 94, 27); set(93, 5, 94, 27, 11);                         // west half: clear straight up, no ceiling
+  carve(95, 5, 96, 27); set(95, 5, 96, 27, 11);                         // east half: rising air, capped by the perch
+  set(95, 4, 96, 4, 1);                                                 // nest perch — beside the shaft, not capping it
+  NEST = { c0: 95, c1: 96, r: 4 };
+
+  REQUIRED = [[40, 21], [55, 21], [86, 21]];
+  seeds = [[21, 26], [25, 26], [29, 26], [44, 24], [52, 25], [62, 20], [80, 24], [84, 22], [90, 24], [95, 15]].map(([c, r]) => seedAt(c, r));
+  enemies = [
+    beetle(15, 28, 1, 13, 17), beetle(44, 28, 1), beetle(80, 28, -1),
+    icicle(60, 18), icicle(63, 18), icicle(66, 18),
+  ];
+  for (const [c0, c1, row, spd, ph] of [[57, 68, 22, 2.4, 0], [92, 97, 19, 2.6, 0], [92, 97, 13, 2.9, 0.5], [92, 97, 7, 3.1, 0.25]]) enemies.push(crow(c0, c1, row, spd, ph));
+  signs = [
+    { c: 3, r: 28, t: ['Fourth egg, same deal.', 'One life — but you know the tricks now!'] },
+    { c: 17, r: 28, t: ['Eggs float, remember?', 'Glide across, nice and easy'] },
+    { c: 35, r: 28, t: ['Warm vents!', 'Rest here to hatch'] },
+    { c: 39, r: 28, t: ['3 rocks, 3 cracks —', 'same rule works down here too'] },
+    { c: 49, r: 28, t: ['Crumbling ice!', 'Fall in? Tuck (↓) and float!'] },
+    { c: 57, r: 28, t: ['Icicles above, crows ahead —', "don't stop to admire the view"] },
+    { c: 67, r: 28, t: ['Big gap ahead!', 'Get a running start'] },
+    { c: 85, r: 28, t: ['Last rock, last crack.', 'Break it — then fly!'] },
+  ];
+}
+
 // ---------- themes ----------
 const THEMES = {
   forest: {
@@ -283,6 +342,12 @@ const THEMES = {
     hills: [[0.1, 330, 150, 0.006, 'rgba(128,144,176,0.75)', null, true], [0.22, 420, 90, 0.011, 'rgba(92,106,138,0.85)', null, true], [0.4, 500, 40, 0.014, 'rgba(66,78,104,0.9)', '#46536f']],
     earth: ['#aab4c6', '#848fa4', '#5f687e', '#3f4658'], outline: '#252a39', grass: ['#ffffff', '#eef3fa', '#bfcfe4'], snow: true,
     lip: 'rgba(170,190,215,0.8)', cave: '#27304a', warm: 'steam', tint: '12,16,32', motes: 'snow', storm: true,
+  },
+  ice: {
+    sky: ['#0d1b3e', '#2d4a7a', '#7fb8c9'], sun: [0.82, 70, 90, '215,230,255'], cloud: ['rgba(200,230,255,0.85)', 'rgba(90,110,160,0.35)'],
+    hills: [[0.1, 320, 140, 0.006, 'rgba(120,150,190,0.7)', null, true], [0.22, 410, 85, 0.011, 'rgba(85,115,165,0.8)', null, true], [0.4, 490, 40, 0.014, 'rgba(55,85,130,0.9)', '#3f5f8a']],
+    earth: ['#c9d8e6', '#9fb3c8', '#6d84a0', '#46566e'], outline: '#1c2438', grass: ['#ffffff', '#e3edf7', '#b7c9de'], snow: true,
+    lip: 'rgba(190,210,230,0.85)', cave: '#16233a', water: [60, 150, 190], warm: 'steam', tint: '10,16,30', motes: 'snow', storm: true,
   },
 };
 
@@ -310,6 +375,11 @@ const LEVELS = [
       ['Huge gap ahead!', 'Hold → all the way down'], ['Icicles drop when you', 'pass under — keep rolling!'], ['Warm steam vent', 'Rest here to hatch'],
       ['3 rocks, 3 cracks.', 'Not a single one to spare!'], ['Crumbling stones', "won't hold you long"], ['Warm air rises!', 'Mind the crows…'],
     ],
+  },
+  {
+    name: 'The Frozen Hollow', tag: "The last egg sank through a crack in the ice! Every trick you've learned — at once, with nothing to spare",
+    theme: 'ice', build: buildFrozenHollow, intro: 'wind',
+    caves: [[0, 18, 92, 39]],
   },
 ];
 
@@ -549,8 +619,9 @@ let result = null, deathCause = '', endT = 0, flash = 0, flashAt = 400, selLevel
 // ---------- progress: unlocked levels and record times (kept in this browser) ----------
 // A level's score is its time plus 10 seconds for every seed left behind. Lower is better.
 const SEED_PENALTY = 600;   // frames = 10 s
-const progress = { unlocked: 1, best: [null, null, null] };
+const progress = { unlocked: 1, best: LEVELS.map(() => null) };
 try { Object.assign(progress, JSON.parse(localStorage.getItem('eggventure-progress')) || {}); } catch (e) {}
+while (progress.best.length < LEVELS.length) progress.best.push(null);
 function saveProgress() { try { localStorage.setItem('eggventure-progress', JSON.stringify(progress)); } catch (e) {} }
 selLevel = progress.unlocked - 1;
 
@@ -1967,7 +2038,7 @@ function drawTitle() {
   txt('→', cx + 60, cy - 10, 30, '#ffe9a8', 'center');
 
   txt('EGGVENTURE', cx, 74, 64, '#ffe066', 'center');
-  txt('Three eggs fell from the nest. Get warm, crack wisely, fly home.', cx, 274, 20, '#ffffff', 'center', 500);
+  txt('Four eggs fell from the nest. Get warm, crack wisely, fly home.', cx, 274, 20, '#ffffff', 'center', 500);
   for (let i = 0; i < LEVELS.length; i++) {
     const { x, y, w, h } = levelCard(i), open = i < progress.unlocked, sel = i === selLevel, best = progress.best[i];
     panel(x, y, w, h);
@@ -1981,7 +2052,7 @@ function drawTitle() {
   if (touchMode) txt('Stick: move · pull ↓ to tuck   ·   JUMP / DASH buttons   ·   ⟲ hold to restart the level', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
   else txt('← →  move   ·   SPACE / Z  jump   ·   SHIFT / X  dash   ·   hold ↓  tuck legs   ·   hold R  restart level   ·   P  pause   ·   M  mute', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
 }
-function levelCard(i) { const w = 250, gap = 18, x0 = VW / 2 - (w * 3 + gap * 2) / 2; return { x: x0 + i * (w + gap), y: 300, w, h: 78 }; }
+function levelCard(i) { const n = LEVELS.length, w = Math.min(250, (VW - 60) / n - 18), gap = 18, x0 = VW / 2 - (w * n + gap * (n - 1)) / 2; return { x: x0 + i * (w + gap), y: 300, w, h: 78 }; }
 function levelCardAt(x, y) { for (let i = 0; i < LEVELS.length; i++) { const c = levelCard(i); if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return i; } return -1; }
 
 const DEATHS = {
@@ -2023,7 +2094,7 @@ function drawLevelClear() {
 }
 function drawWin() {
   drawOverlay(0.55);
-  txt('ALL THREE EGGS ARE HOME!', VW / 2, 90, 46, '#ffe066', 'center');
+  txt('ALL FOUR EGGS ARE HOME!', VW / 2, 90, 46, '#ffe066', 'center');
   drawScore(160);
   txt('Records:  ' + LEVELS.map((L, i) => `${i + 1}. ${progress.best[i] === null ? '—' : fmtTime(progress.best[i])}`).join('   ·   '), VW / 2, 350, 17, '#ffe9a8', 'center', 500);
   if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey('go to level select'), VW / 2, 410, 22, '#b8ffb0', 'center');

@@ -2,7 +2,7 @@
   "id": "/egg-platformer-prototypes/prototype-a/",
   "name": "Eggventure — Prototype A",
   "short_name": "Eggventure",
-  "description": "An egg that rolls, grows legs and hatches into a bird. Three levels, one life per try.",
+  "description": "An egg that rolls, grows legs and hatches into a bird. Four levels, one life per try.",
   "start_url": "/egg-platformer-prototypes/Prototype%20A/",
   "scope": "/egg-platformer-prototypes/Prototype%20A/",
   "display": "fullscreen",
