@@ -830,7 +830,8 @@ function icicle(c, r) { return { kind: 'icicle', x: c * TS + 16, y: r * TS, y0: 
 // a boulder rests until the rock wall at (trigC,trigR) is dashed open, then falls and chases the player downhill;
 // if it rolls into the pit spanned by plugC0..plugC1 it wedges there and plugs it with rock (safe to hop over)
 function boulder(c, r, o) {
-  return { kind: 'boulder', x: c * TS, y: r * TS, w: 36, h: 36, vx: 0, vy: 0, face: 1, rot: 0, active: false, lodged: false,
+  const size = o.size ?? 76;
+  return { kind: 'boulder', x: c * TS, y: r * TS, w: size, h: size, vx: 0, vy: 0, face: o.dir ?? 1, rot: 0, active: false, lodged: false,
     trigC: o.trigC, trigR: o.trigR, maxSpd: o.maxSpd ?? 6.5, rollAcc: o.rollAcc ?? 0.5, plugC0: o.plugC0, plugC1: o.plugC1, plugRow: o.plugRow };
 }
 
@@ -875,10 +876,8 @@ function updateEnemies() {
       }
       if (e.lodged) continue;
       e.anim = (e.anim || 0) + 0.2;
-      // rolls after the player, picking up speed downhill — faster than a run, but a good tucked roll can still outpace it
-      const dir = Math.sign((P.x + P.w / 2) - (e.x + e.w / 2)) || e.face;
-      e.face = dir;
-      e.vx = clamp(e.vx + dir * e.rollAcc, -e.maxSpd, e.maxSpd);
+      // rolls downhill under its own weight — faster than a run, but a good tucked roll can still outpace it
+      e.vx = clamp(e.vx + e.face * e.rollAcc, -e.maxSpd, e.maxSpd);
       e.rot += e.vx * 0.045;
       e.x += e.vx;
       if (overlapSolids(e.x, e.y, e.w, e.h).length) e.x -= e.vx;
