@@ -27,6 +27,7 @@
   .ctl{position:fixed;z-index:5;touch-action:none;display:none;align-items:center;justify-content:center;color:#fff;font-weight:700;letter-spacing:.5px;
        background:rgba(30,20,40,.38);border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);-webkit-user-select:none;user-select:none}
   body.touch .ctl{display:flex}
+  body.touch.hideCtl .ctl{display:none}
   .ctl.on{background:rgba(255,224,102,.45);border-color:#ffe066}
   #stick{left:calc(env(safe-area-inset-left) + 18px);bottom:calc(env(safe-area-inset-bottom) + 16px);width:150px;height:150px;border-radius:50%}
   #knob{width:62px;height:62px;border-radius:50%;background:rgba(255,255,255,.55);border:2px solid #fff;pointer-events:none;transition:transform .05s}
@@ -192,7 +193,8 @@ I18N.en = {
   recordWas: prev => `Record  ${prev}`,
   pausedTitle: 'PAUSED',
   resumeTouch: 'Tap ❚❚ to resume', resumeKeys: 'P / ESC to resume',
-  skipTouch: 'Tap JUMP to skip', skipKeys: 'SPACE to skip',
+  menuTouch: 'Tap ⌂ for level select', menuKeys: 'R for level select',
+  skipTouch: 'Tap to skip', skipKeys: 'SPACE to skip',
 };
 I18N.fr = {
   brandTagline: 'Quatre œufs sont tombés du nid. Trouve la chaleur, casse ta coquille au bon moment, rentre au nid.',
@@ -305,7 +307,8 @@ I18N.fr = {
   recordWas: prev => `Record  ${prev}`,
   pausedTitle: 'PAUSE',
   resumeTouch: 'Touche ❚❚ pour reprendre', resumeKeys: 'P / ÉCHAP pour reprendre',
-  skipTouch: 'Touche SAUTER pour passer', skipKeys: 'ESPACE pour passer',
+  menuTouch: 'Touche ⌂ pour la sélection des niveaux', menuKeys: 'R pour la sélection des niveaux',
+  skipTouch: 'Touche l’écran pour passer', skipKeys: 'ESPACE pour passer',
 };
 function tr(key, ...args) {
   const d = I18N[lang] || I18N.en;
@@ -1081,7 +1084,10 @@ function update() {
     return;
   }
   if (pressed('pause')) paused = !paused;
-  if (paused) return;
+  if (paused) {
+    if (pressed('reset')) toTitle();
+    return;
+  }
 
   // hold R to restart this level (the puzzle can be lost by cracking too early). Dying lets you retry the level.
   if (down('reset')) { if (++resetHold >= 45) { beginLevel(levelNo, true); return; } } else resetHold = 0;
@@ -2486,7 +2492,12 @@ function draw() {
     if (state === 'over') drawGameOver();
     if (state === 'clear') drawLevelClear();
     if (state === 'win') drawWin();
-    if (paused) { drawOverlay(0.4); txt(tr('pausedTitle'), VW / 2, VH / 2 - 10, 48, '#ffe066', 'center'); txt(touchMode ? tr('resumeTouch') : tr('resumeKeys'), VW / 2, VH / 2 + 34, 18, '#fff', 'center', 500); }
+    if (paused) {
+      drawOverlay(0.4);
+      txt(tr('pausedTitle'), VW / 2, VH / 2 - 10, 48, '#ffe066', 'center');
+      txt(touchMode ? tr('resumeTouch') : tr('resumeKeys'), VW / 2, VH / 2 + 34, 18, '#fff', 'center', 500);
+      txt(touchMode ? tr('menuTouch') : tr('menuKeys'), VW / 2, VH / 2 + 60, 15, 'rgba(255,255,255,0.75)', 'center', 500);
+    }
   }
 }
 
@@ -2552,7 +2563,7 @@ cvs.addEventListener('pointerdown', e => {
     const i = levelCardAt(x, y);
     if (i >= 0) { if (i < progress.unlocked) { initAudio(); startGame(i); } e.preventDefault(); return; }
   }
-  if (touchMode && state !== 'play' && state !== 'intro') { setKey('start', true); setTimeout(() => setKey('start', false), 60); e.preventDefault(); }
+  if (touchMode && state !== 'play') { setKey('start', true); setTimeout(() => setKey('start', false), 60); e.preventDefault(); }
 });
 document.addEventListener('contextmenu', e => { if (touchMode) e.preventDefault(); });
 document.addEventListener('gesturestart', e => e.preventDefault());
@@ -2561,11 +2572,13 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 const dashBtn = document.getElementById('dash'), jumpBtn = document.getElementById('jump'), restartBtn = document.getElementById('restart');
 function updateButtons() {
   if (!touchMode) return;
+  document.body.classList.toggle('hideCtl', state === 'title' || state === 'intro');
   const canDash = state === 'play' && P.form === 'legs' && !P.tucked;
   dashBtn.classList.toggle('off', !canDash);
   const label = state !== 'play' && state !== 'intro' ? 'START' : P.form === 'bird' && !P.onGround ? 'FLAP' : 'JUMP';
   if (jumpBtn.textContent !== label) jumpBtn.textContent = label;
   restartBtn.classList.toggle('hold', resetHold > 0);
+  restartBtn.textContent = paused ? '⌂' : '⟲';
 }
 
 // ============================ LOOP ============================
