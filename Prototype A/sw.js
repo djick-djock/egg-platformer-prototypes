@@ -1,6 +1,6 @@
 // Serve the game from the cache (works offline) and refresh the cache in the background,
 // so a new version shows up the next time the app is opened.
-const CACHE = 'eggventure-a-v1';
+const CACHE = 'eggventure-a-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

@@ -1,16 +1,30 @@
 {
+  "id": "/egg-platformer-prototypes/prototype-a/",
   "name": "Eggventure — Prototype A",
   "short_name": "Eggventure",
   "description": "An egg that rolls, grows legs and hatches into a bird. Three levels, one life per try.",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/egg-platformer-prototypes/Prototype%20A/",
+  "scope": "/egg-platformer-prototypes/Prototype%20A/",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#1b1830",
   "theme_color": "#1b1830",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
