@@ -1,0 +1,2086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Eggventure</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1b1830">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Eggventure">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:dark}
+  *{-webkit-tap-highlight-color:transparent;box-sizing:border-box}
+  html,body{margin:0;height:100%;width:100%;background:#1b1830;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center;font-family:"Fredoka",system-ui,sans-serif}
+  canvas{width:min(100vw,calc(100vh*960/544));aspect-ratio:960/544;border-radius:10px;box-shadow:0 10px 40px #0008;display:block}
+
+  /* ---- touch controls (shown in touch mode) ---- */
+  body.touch{position:fixed;inset:0;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  body.touch canvas{width:min(100vw,calc(100dvh*960/544));border-radius:0;box-shadow:none;touch-action:none}
+  .ctl{position:fixed;z-index:5;touch-action:none;display:none;align-items:center;justify-content:center;color:#fff;font-weight:700;letter-spacing:.5px;
+       background:rgba(30,20,40,.38);border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);-webkit-user-select:none;user-select:none}
+  body.touch .ctl{display:flex}
+  .ctl.on{background:rgba(255,224,102,.45);border-color:#ffe066}
+  #stick{left:calc(env(safe-area-inset-left) + 18px);bottom:calc(env(safe-area-inset-bottom) + 16px);width:150px;height:150px;border-radius:50%}
+  #knob{width:62px;height:62px;border-radius:50%;background:rgba(255,255,255,.55);border:2px solid #fff;pointer-events:none;transition:transform .05s}
+  .arrow{position:absolute;color:rgba(255,255,255,.7);font-size:18px;pointer-events:none}
+  #jump{right:calc(env(safe-area-inset-right) + 20px);bottom:calc(env(safe-area-inset-bottom) + 22px);width:96px;height:96px;border-radius:50%;font-size:17px}
+  #dash{right:calc(env(safe-area-inset-right) + 128px);bottom:calc(env(safe-area-inset-bottom) + 70px);width:74px;height:74px;border-radius:50%;font-size:14px}
+  #dash.off{opacity:.3}
+  .small{top:calc(env(safe-area-inset-top) + 8px);width:44px;height:44px;border-radius:12px;font-size:18px}
+  #pause{left:calc(50% - 76px)} #restart{left:calc(50% - 22px)} #mute{left:calc(50% + 32px)}
+  #restart.hold{background:rgba(255,120,90,.55)}
+  #touchToggle{position:fixed;z-index:6;bottom:calc(env(safe-area-inset-bottom) + 8px);right:calc(env(safe-area-inset-right) + 8px);height:32px;padding:0 10px;border-radius:10px;
+       border:1.5px solid rgba(255,255,255,.3);background:rgba(30,20,40,.45);color:rgba(255,255,255,.8);font:600 12px "Fredoka",system-ui,sans-serif;cursor:pointer;opacity:.55}
+  #touchToggle:hover{opacity:1}
+  body.touch #touchToggle{top:calc(env(safe-area-inset-top) + 8px);bottom:auto;height:44px;border-radius:12px}
+  #rotate{position:fixed;inset:0;z-index:10;background:#1b1830;color:#ffe9a8;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;font-size:20px;padding:24px}
+  #rotate .phone{width:46px;height:78px;border:4px solid #ffe9a8;border-radius:10px;animation:rot 2s ease-in-out infinite}
+  @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
+  @media (orientation:portrait){body.touch #rotate{display:flex}}
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="544"></canvas>
+<div id="stick" class="ctl"><span class="arrow" style="left:12px">◀</span><span class="arrow" style="right:12px">▶</span><span class="arrow" style="bottom:8px">▼</span><div id="knob"></div></div>
+<div id="dash" class="ctl" data-key="dash">DASH</div>
+<div id="jump" class="ctl" data-key="jump">JUMP</div>
+<div id="pause" class="ctl small" data-key="pause">❚❚</div>
+<div id="restart" class="ctl small" data-key="reset">⟲</div>
+<div id="mute" class="ctl small" data-key="mute">♪</div>
+<button id="touchToggle" type="button">Touch controls</button>
+<div id="rotate"><div class="phone"></div><div>Turn your phone sideways to play</div></div>
+<script>
+'use strict';
+const cvs = document.getElementById('game'), ctx = cvs.getContext('2d');
+const VW = 960, VH = 544, TS = 32;
+let COLS = 72, ROWS = 36;
+const FONT = '"Fredoka", system-ui, sans-serif';
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const hash = (x, y) => (((x * 73856093) ^ (y * 19349663)) >>> 0);
+
+// ============================ LEVELS ============================
+// Three levels, one life. In every level you start as an egg, find a warm spot to grow legs,
+// smash your way through with dashes (every impact cracks you, the 3rd crack hatches you),
+// then fly to the nest as a bird. Your form decides where you can go:
+//   EGG  – tiny (fits 1-tile tunnels), low hop, rolls fast downhill, FLOATS.
+//   LEGS – tall, high jump, DASH. Hold ↓ to tuck in and move like an egg again (and float).
+//   BIRD – flaps & glides, rides rising warm air — but can't dash, tuck or swim.
+// Tiles: 0 air, 1 ground, 2 breakable rock, 3 thorns, 4 water, 5 one-way branch, 6 ramp '/', 7 downhill '\',
+//        8 mushroom, 9 leaves, 10 crumbling stone, 11 rising warm air
+let map, seeds, signs, enemies, crumbling;
+let NEST, START, WARM, CAVE_TOP, REQUIRED;   // set by each level
+let LV = null, TH = null, levelNo = 0;
+
+// ---------- Level 1: the big tree (hand-built) ----------
+// The nest sits on top of a big tree, above a leafy canopy. The egg falls through the leaves
+// onto the hilltop below. The only way back up is inside the hollow trunk — with wings.
+const PLUG = { c: 5, r: 32 };
+function buildForest() {
+  COLS = 72; ROWS = 36;
+  NEST = { c0: 5, c1: 9, r: 4 };
+  START = { c: 10, r: 17 };
+  WARM = { c0: 18, c1: 21, r0: 32, r1: 34 };
+  CAVE_TOP = 30;
+  map = Array.from({ length: ROWS }, () => new Array(COLS).fill(1));
+  const set = (c0, r0, c1, r1, t) => { for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) map[y][x] = t; };
+  const carve = (c0, r0, c1, r1) => set(c0, r0, c1, r1, 0);
+
+  // --- Treetop and hollow trunk (wings only) ---
+  carve(1, 0, 70, 3);
+  carve(3, 3, 4, 34);
+  for (const r of [31, 27, 23, 19, 15, 11, 7]) set(3, r, 4, r, 5);   // resting branches inside the trunk
+  set(8, 4, 70, 6, 9);                                                  // leafy canopy over the whole forest
+
+  // --- Forest floor under the canopy ---
+  carve(8, 7, 70, 24);
+  carve(14, 25, 28, 26);
+
+  // --- The hill: land on top, roll down, launch off the ramp ---
+  set(8, 17, 13, 30, 1);                                                // hilltop
+  for (let i = 0; i < 10; i++) { map[17 + i][14 + i] = 7; set(14 + i, 18 + i, 14 + i, 30, 1); }
+  set(24, 27, 26, 30, 1);                                               // dip
+  map[26][27] = 6; set(27, 27, 27, 30, 1);                              // ramp
+  map[25][28] = 6; set(28, 26, 28, 30, 1);
+  carve(29, 25, 32, 29); set(29, 29, 32, 29, 3);                        // thorn pit
+  set(40, 21, 49, 21, 1);                                               // high ledge: only a pushed roll gets here
+
+  // --- Clearing: mushroom + branch bridge back to the hilltop (one way) ---
+  map[25][55] = 8;                                                      // bouncy mushroom (hop onto it)
+  set(15, 12, 58, 12, 5);                                               // branch bridge; drops you onto the hilltop
+
+  // --- Chimney down to the cave (one-way for an egg, climbable with legs) ---
+  carve(62, 25, 65, 30);
+  set(68, 22, 70, 22, 1); set(68, 23, 68, 24, 2);                       // rock pocket P1 (east ledge)
+
+  // --- Cave ---
+  carve(8, 31, 70, 34);
+  carve(8, 28, 17, 30);                                                 // taller west end
+  set(PLUG.c, PLUG.r, PLUG.c + 2, PLUG.r + 2, 2);                       // rock plug at the foot of the tree
+  set(10, 32, 12, 32, 1); set(12, 33, 12, 34, 2);                       // rock pocket P2
+  set(26, 33, 29, 33, 1);                                               // low slab: egg crawlspace
+  set(67, 31, 70, 33, 1);                                               // egg tunnel at the east end
+  // chimney climbing branches (after the cave carve so they aren't erased); the left side is a clean drop
+  set(64, 32, 65, 32, 5); set(64, 29, 65, 29, 5); set(64, 26, 65, 26, 5);
+
+  REQUIRED = [[PLUG.c, PLUG.r]];
+  seeds = [[44, 20], [37, 19], [27, 34], [69, 34], [70, 24], [11, 34], [3, 21], [3, 13], [67, 12]].map(([c, r]) => seedAt(c, r));
+  signs = [
+    { c: 12, r: 17, t: ['Roll down the hill!', 'Hold → to go faster'] },
+    { c: 52, r: 25, t: ['Back to the hill?', 'Jump on the mushroom!'] },
+    { c: 59, r: 25, t: ['Careful! Dashing into', 'ANY wall cracks you'] },
+    { c: 23, r: 35, t: ['A warm spot!', 'Rest here to hatch…'] },
+    { c: 60, r: 35, t: ['Got legs? Climb', 'the branches up →'] },
+    { c: 52, r: 35, t: ['Beetles bite!', 'Hop on their backs'] },
+  ];
+  enemies = [beetle(44, 35, -1, 34, 56)];
+}
+
+// ---------- Level 2: the creek (ASCII map) ----------
+// '.' air  '#' ground  'R' rock  'G' gate rock (needed)  'P' plug rock (needed)  '^' thorns  '~' water  '=' branch
+// '/' ramp  '\' downhill  'M' mushroom  'C' crumbling stone  '|' rising warm air  '*' seed  'U' seed in warm air
+// 'b' beetle  'i' icicle  'E' start  'w' warm spot  '1'-'9' signs
+const CREEK_MAP = String.raw`
+#.........................................................................######....................
+#.........................................................................######....................
+#.........................................................................######....................
+#.........................................................................######....................
+#.........................................................................######....................
+#...............................................................*.........######....................
+#.............................................................=====.......######...............#####
+#.........................................................................######...............#####
+#.........................................................................######.......*.......#####
+#........*................................................................######...............#####
+#..1.E....b2..............................................................######...........====#####
+#############\............................................................######...............#####
+##############\...........................................................######...............#####
+###############\..................................#####...................######............b..#####
+################\.................................R...#...................P...............=====#####
+#################\................................R.*.#.b...^^....b......6P......7.............#####
+##################\...........................##################M####....#########.............#####
+###################\...........b..*...........#######################....#########.............#####
+####################\^^........####...........#######################..==#########..............*###
+########################.........*........3........##################....###########~~~~~~~~~~~~~###
+########################~~~~~~~~~~~~#############..##################....###########~~~~~~~~~~~~~###
+########################~~~~~~~~~~~~#############..##################..==###########~~~~~~~~~~~~~###
+########################~~~~~~~~~~~~#############..##################....###########~~~~~~~~~~~~~###
+########################~~~~~~~~~~~~######...............G...............###########################
+##########################################...............G.............==###########################
+##########################################...............G...............###########################
+##########################################............*..G...............###########################
+######################################...R...........###.G....*........==###########################
+######################################...R.........wwwww.G...............###########################
+######################################.*........4..wwwww.G.5........b....###########################
+##########################################~~~~~#############......##################################
+##########################################~~~~~#############^^^^^^##################################
+####################################################################################################
+####################################################################################################
+####################################################################################################
+####################################################################################################
+`;
+
+// ---------- Level 3: storm peak (ASCII map) ----------
+const PEAK_MAP = String.raw`
+#...................................................................................................
+#...................................................................................................
+#.....................................................................*.............................
+#...................................................................................................
+#...............................................................############################.||||.##
+#...............................................................############################.||||.##
+#...............................................................############################.||||.##
+#...............................................................############################.||||.##
+#...............................................................############################.||||.##
+#.1..E..........................................................############################.||||=##
+########\.......................................................############################.||||.##
+#########\.........................*............................############################.||||.##
+##########\.....................................................############################.||||.##
+###########\....................................................############################.||||.##
+############\...................................................############################.||U|.##
+#############\..................................................############################.||||.##
+##############\.................................................############################.||||.##
+###############\................................................############################=||||.##
+################\...............................................############################.||||.##
+#################\..................................b...........############################.||||.##
+##################\..../...............###################..################################.||||.##
+###################\../#...............###################..################################.||||.##
+########################...............###################..################################.||||.##
+########################...............###################..################################.||||.##
+########################...............###################..################################.||||.##
+########################^^^^^^^^^^^^^^^###################..################################.||||=##
+##########################################################..################################.||||.##
+##########################################################..################################.||||.##
+########################....G......i..i..i....i..i..i..i........############################.||||.##
+########################....G...................................############################.||||.##
+########################....G*........*.........................############################.|U||.##
+########################....G##.................................############################.||||.##
+########################....G..www................*.............############################.||||.##
+########################....G..www3.....................2..........*########################=||||.##
+########################....#######..CC.CC.#################################################.||||.##
+########################....#######^^^^^^^^#################################################.||||.##
+########################....################################################################.||||.##
+########################....################################################################.||||.##
+########################..........................................G........................P.||||.##
+########################..........................................G........................P.||||.##
+########################..........................................G........................P.||||.##
+########################................................*.........G........................P.||||=##
+########################.................*........................G..................*.....P.||||.##
+########################..........................................G.................###....P.||||.##
+########################...........................CC..CC..CC.....G........................P.||||.##
+########################..4.....b...............5.................G.....b.......b........6.P.||||.##
+######################################^^^^^^^^###^^^^^^^^^^^^^^#####################################
+####################################################################################################
+`;
+
+const TILE_OF = { '#': 1, 'R': 2, 'G': 2, 'P': 2, '^': 3, '~': 4, '=': 5, '/': 6, '\\': 7, 'M': 8, 'L': 9, 'C': 10, '|': 11, 'U': 11 };
+function parseLevel(src) {
+  const rows = src.split('\n').filter(l => l.length);
+  ROWS = rows.length; COLS = rows[0].length;
+  map = []; seeds = []; signs = []; enemies = []; REQUIRED = []; WARM = null;
+  for (let r = 0; r < ROWS; r++) {
+    const line = [];
+    for (let c = 0; c < COLS; c++) {
+      const ch = rows[r][c] || '.';
+      line.push(TILE_OF[ch] || 0);
+      if (ch === '*' || ch === 'U') seeds.push(seedAt(c, r));
+      else if (ch === 'b') enemies.push(beetle(c, r + 1, c % 2 ? 1 : -1));
+      else if (ch === 'i') enemies.push(icicle(c, r));
+      else if (ch === 'E') START = { c, r: r + 1 };
+      else if (ch === 'G' || ch === 'P') REQUIRED.push([c, r]);
+      else if (ch === 'w') WARM = WARM ? { c0: Math.min(WARM.c0, c), c1: Math.max(WARM.c1, c), r0: Math.min(WARM.r0, r), r1: Math.max(WARM.r1, r) } : { c0: c, c1: c, r0: r, r1: r };
+      else if (ch >= '1' && ch <= '9') signs.push({ c, r: r + 1, t: LV.signs[+ch - 1] });
+    }
+    map.push(line);
+  }
+}
+const seedAt = (c, r) => ({ x: c * TS + 16, y: r * TS + 16, got: false, ph: Math.random() * 6 });
+const inRects = (rects, c, r) => rects.some(([c0, r0, c1, r1]) => c >= c0 && c <= c1 && r >= r0 && r <= r1);
+
+// ---------- themes ----------
+const THEMES = {
+  forest: {
+    sky: ['#7cc0ea', '#cbe7f2', '#fbeed4'], sun: [0.8, 80, 170, '255,245,205'], cloud: ['rgba(255,255,255,0.92)', 'rgba(150,185,215,0.35)'],
+    hills: [[0.1, 300, 60, 0.004, 'rgba(150,176,200,0.6)', null], [0.22, 380, 40, 0.007, 'rgba(146,190,150,0.75)', '#88b58a'], [0.4, 450, 30, 0.011, 'rgba(112,165,110,0.85)', '#6d9f6a']],
+    earth: ['#bf8b57', '#98663e', '#6c452b', '#4a2e1e'], outline: '#3b2618', grass: ['#c2e685', '#7cc255', '#4f9442'],
+    lip: 'rgba(176,136,100,0.9)', cave: '#3e2a20', warm: 'ember', tint: '30,18,10', motes: 'pollen',
+  },
+  creek: {
+    sky: ['#e9906a', '#f6c48f', '#fdeccb'], sun: [0.24, 205, 230, '255,226,160'], cloud: ['rgba(255,236,220,0.9)', 'rgba(200,120,110,0.3)'],
+    hills: [[0.1, 320, 55, 0.005, 'rgba(176,130,150,0.55)', null], [0.22, 390, 38, 0.008, 'rgba(150,160,110,0.7)', '#8d9a62'], [0.4, 460, 28, 0.012, 'rgba(104,140,86,0.85)', '#5f8a55']],
+    earth: ['#b48a5c', '#8f6644', '#654630', '#43301f'], outline: '#35231a', grass: ['#d8e889', '#8cc257', '#5a9140'],
+    lip: 'rgba(170,130,95,0.9)', cave: '#382823', water: [70, 150, 205], warm: 'steam', tint: '45,20,10', motes: 'firefly',
+  },
+  peak: {
+    sky: ['#2f3b58', '#61739a', '#b3c0d6'], sun: null, cloud: ['rgba(96,106,132,0.95)', 'rgba(40,46,66,0.45)'],
+    hills: [[0.1, 330, 150, 0.006, 'rgba(128,144,176,0.75)', null, true], [0.22, 420, 90, 0.011, 'rgba(92,106,138,0.85)', null, true], [0.4, 500, 40, 0.014, 'rgba(66,78,104,0.9)', '#46536f']],
+    earth: ['#aab4c6', '#848fa4', '#5f687e', '#3f4658'], outline: '#252a39', grass: ['#ffffff', '#eef3fa', '#bfcfe4'], snow: true,
+    lip: 'rgba(170,190,215,0.8)', cave: '#27304a', warm: 'steam', tint: '12,16,32', motes: 'snow', storm: true,
+  },
+};
+
+const LEVELS = [
+  {
+    name: 'The Big Tree', tag: 'You fell out of the nest! One life — roll down the hill and find somewhere warm to hatch',
+    theme: 'forest', build: buildForest, intro: 'nest', backdrop: forestBackdrop, bark: [[1, 3, 7, 29]],
+    under: (c, r) => r >= 30, drips: (c, r) => r >= 27,
+  },
+  {
+    name: 'The Creek', tag: 'The wind blew the next egg into the creek! Eggs float — legs and wings sink',
+    theme: 'creek', map: CREEK_MAP, intro: 'wind', nest: { c0: 95, c1: 99, r: 6 }, bark: [[95, 6, 99, 24]], decor: creekDecor, backdrop: creekBackdrop,
+    caves: [[46, 19, 50, 19], [49, 19, 50, 22], [38, 23, 72, 29], [42, 30, 46, 31], [60, 30, 65, 31], [69, 17, 72, 22], [74, 14, 79, 15], [95, 18, 96, 22]],
+    signs: [
+      ['Beetles bite!', 'Hop on their backs'], ['Thorns below — hop!', 'Then float across'], ['A tiny tunnel…', 'it feels warm down there'],
+      ['Warm stones!', 'Rest here to hatch'], ['Jump, then DASH', 'across the thorns!'], ['The nest is past', 'this rock…'], ['Legs sink! Tuck (↓)', 'to float — or fly'],
+    ],
+  },
+  {
+    name: 'Storm Peak', tag: 'A storm swept the last egg up the mountain! Icicles, crows — and not a crack to spare',
+    theme: 'peak', map: PEAK_MAP, intro: 'wind', nest: { c0: 78, c1: 83, r: 4 },
+    caves: [[28, 28, 63, 33], [64, 33, 67, 33], [35, 34, 42, 35], [58, 21, 59, 27], [24, 28, 27, 37], [24, 38, 90, 45], [38, 46, 45, 46], [49, 46, 62, 46], [91, 4, 97, 45]],
+    crows: [[92, 97, 37, 2.2, 0], [92, 97, 29, 2.6, 0.6], [92, 97, 21, 2.9, 0.25], [92, 97, 13, 3.1, 0.8], [66, 97, 1.4, 2.4, 0.4]],
+    signs: [
+      ['Huge gap ahead!', 'Hold → all the way down'], ['Icicles drop when you', 'pass under — keep rolling!'], ['Warm steam vent', 'Rest here to hatch'],
+      ['3 rocks, 3 cracks.', 'Not a single one to spare!'], ['Crumbling stones', "won't hold you long"], ['Warm air rises!', 'Mind the crows…'],
+    ],
+  },
+];
+
+function buildLevel() {
+  LV = LEVELS[levelNo]; TH = THEMES[LV.theme];
+  crumbling = []; seeds = []; signs = []; enemies = [];
+  if (LV.build) LV.build(); else { parseLevel(LV.map); CAVE_TOP = ROWS; }
+  if (LV.nest) NEST = LV.nest;
+  for (const [c0, c1, row, spd, ph] of LV.crows || []) enemies.push(crow(c0, c1, row, spd, ph));
+  buildTerrainArt();
+}
+
+const tileAt = (c, r) => (c < 0 || c >= COLS || r < 0 || r >= ROWS) ? 1 : map[r][c];
+const isSolid = t => t === 1 || t === 2 || t === 8 || t === 9 || t === 10;
+const isSlope = t => t === 6 || t === 7;
+// y of a slope tile's surface at world x. '/' rises to the right, '\' falls to the right
+function slopeY(t, c, r, x) { const lx = clamp(x - c * TS, 0, TS); return r * TS + (t === 6 ? TS - lx : lx); }
+function slopeUnder(x, footY) {
+  const c = Math.floor(x / TS);
+  for (let r = Math.floor((footY - 24) / TS); r <= Math.floor((footY + 24) / TS); r++) {
+    const t = tileAt(c, r);
+    if (isSlope(t)) return { t, y: slopeY(t, c, r, x) };
+  }
+  return null;
+}
+// the water surface above (x, y) if that point is under water
+function waterAt(x, y) {
+  const c = Math.floor(x / TS); let r = Math.floor(y / TS);
+  if (tileAt(c, r) !== 4) return null;
+  while (tileAt(c, r - 1) === 4) r--;
+  return r * TS;
+}
+
+function overlapSolids(x, y, w, h) {
+  const out = [];
+  const c0 = Math.floor(x / TS), c1 = Math.floor((x + w - 0.001) / TS);
+  const r0 = Math.floor(y / TS), r1 = Math.floor((y + h - 0.001) / TS);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const t = tileAt(c, r);
+    if (isSolid(t)) out.push({ c, r, t });
+  }
+  return out;
+}
+
+// ============================ INPUT ============================
+const keys = {}, pressedK = {};
+const KEYMAP = {
+  ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
+  Space: 'jump', KeyZ: 'jump', KeyK: 'jump',
+  ShiftLeft: 'dash', ShiftRight: 'dash', KeyX: 'dash', KeyJ: 'dash',
+  KeyR: 'reset', Enter: 'start', Escape: 'pause', KeyP: 'pause', KeyM: 'mute'
+};
+addEventListener('keydown', e => {
+  const k = KEYMAP[e.code]; if (!k) return;
+  e.preventDefault();
+  if (!keys[k]) pressedK[k] = true;
+  keys[k] = true;
+  initAudio();
+});
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) { keys[k] = false; e.preventDefault(); } });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+const down = k => !!keys[k], pressed = k => !!pressedK[k];
+
+// ============================ AUDIO ============================
+let AC = null, muted = false;
+function initAudio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  else if (AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type = 'square', vol = 0.1, delay = 0) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + delay, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(dur, vol = 0.2, freq = 800, delay = 0) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + delay, len = (AC.sampleRate * dur) | 0;
+  const b = AC.createBuffer(1, len, AC.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = AC.createBufferSource(); s.buffer = b;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+  const g = AC.createGain(); g.gain.value = vol;
+  s.connect(f).connect(g).connect(AC.destination); s.start(t);
+}
+const SFX = {
+  hop:   () => tone(220, 440, 0.12, 'triangle', 0.14),
+  jump:  () => tone(280, 580, 0.14, 'square', 0.07),
+  flap:  () => { tone(520, 900, 0.08, 'triangle', 0.1); noise(0.06, 0.06, 2500); },
+  dash:  () => { noise(0.18, 0.2, 1500); tone(200, 90, 0.15, 'sawtooth', 0.04); },
+  break: () => { noise(0.45, 0.4, 600); tone(130, 45, 0.3, 'square', 0.08); },
+  bonk:  () => { noise(0.15, 0.3, 400); tone(160, 60, 0.15, 'square', 0.08); },
+  crack: () => { tone(1500, 300, 0.12, 'square', 0.07, 0.06); noise(0.08, 0.2, 5000, 0.06); },
+  seed:  () => tone(880, 1400, 0.1, 'sine', 0.12),
+  die:   () => { tone(520, 70, 0.6, 'square', 0.08); noise(0.3, 0.25, 900); },
+  power: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, f * 1.01, 0.2, 'triangle', 0.12, i * 0.09)),
+  hatch: () => { noise(0.5, 0.35, 3000); [392, 523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, f * 1.01, 0.22, 'triangle', 0.12, 0.1 + i * 0.08)); },
+  land:  () => noise(0.06, 0.1, 500),
+  nope:  () => tone(200, 150, 0.1, 'triangle', 0.08),
+  tuck:  () => tone(500, 260, 0.08, 'triangle', 0.1),
+  boing: () => { tone(180, 720, 0.22, 'sine', 0.16); tone(360, 1100, 0.18, 'triangle', 0.06, 0.03); },
+  untuck:() => tone(300, 620, 0.08, 'triangle', 0.1),
+  splash:() => { noise(0.25, 0.25, 1800); tone(400, 180, 0.12, 'sine', 0.08); },
+  squash:() => { tone(300, 90, 0.12, 'square', 0.08); noise(0.08, 0.2, 1200); },
+  creak: () => tone(1900, 1500, 0.15, 'triangle', 0.05),
+  shatter:() => { noise(0.2, 0.25, 6000); tone(2400, 1200, 0.1, 'triangle', 0.05); },
+  crumble:() => noise(0.35, 0.3, 700),
+  thunder:() => { noise(1.4, 0.35, 180); noise(0.6, 0.2, 400, 0.1); },
+  win:   () => [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => tone(f, f * 1.01, 0.22, 'triangle', 0.13, i * 0.13)),
+};
+
+// ============================ PLAYER ============================
+const FORMS = {
+  egg:  { name: 'EGG',       w: 22, h: 26, jump: 7.5, max: 6,   g: 0.5 },
+  legs: { name: 'LEGGY EGG', w: 22, h: 40, jump: 11,  max: 4.6, g: 0.55, dash: true, dashSpd: 12, dashT: 12 },
+  bird: { name: 'BIRD',      w: 24, h: 34, jump: 10,  max: 4.6, g: 0.5,  flaps: 5, flap: 7.5 },
+};
+
+let P;
+function newPlayer() {
+  const F = FORMS.egg;
+  return {
+    x: START.c * TS + 16 - F.w / 2, y: START.r * TS - F.h, w: F.w, h: F.h, vx: 0, vy: 0, onGround: false, face: 1,
+    form: 'egg', angle: 0, coyote: 0, jumpBuf: 0, dashT: 0, dashCD: 0, canDash: true, dx: 1,
+    flaps: 0, cracks: 0, anim: 0, sx: 1, sy: 1, trans: 0, transMax: 1, transTo: null, dead: 0,
+    flapAnim: 0, trail: [], legGrow: 0, gliding: false, blink: 0, heat: 0, tucked: false, slope: 0, launchT: 0, dropT: 0,
+    wet: false, floating: false,
+  };
+}
+function setForm(f) { resizeTo(FORMS[f]); P.form = f; }
+// resize the hitbox keeping the feet where they are
+function resizeTo(n) { P.x += (P.w - n.w) / 2; P.y += P.h - n.h; P.w = n.w; P.h = n.h; }
+const fits = n => !overlapSolids(P.x + (P.w - n.w) / 2, P.y + P.h - n.h, n.w, n.h).length;
+// a leggy egg with its legs tucked in moves exactly like an egg
+const physForm = () => P.form === 'legs' && P.tucked ? 'egg' : P.form;
+const normAngle = a => ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+
+// ============================ ENEMIES ============================
+// a beetle walks back and forth on the ground; optional c0..c1 keeps it on a patch
+function beetle(c, groundRow, dir = -1, c0 = 0, c1 = 1e9) { return { kind: 'beetle', x: c * TS + 3, y: groundRow * TS - 18, w: 26, h: 18, vx: 0.8 * dir, anim: Math.random() * 6, dead: 0, minX: c0 * TS, maxX: (c1 + 1) * TS }; }
+function crow(c0, c1, row, spd, ph) {
+  const x0 = c0 * TS, x1 = (c1 + 1) * TS - 30;
+  return { kind: 'crow', x0, x1, y0: row * TS + 7, x: lerp(x0, x1, ph), y: row * TS + 7, w: 30, h: 18, vx: spd * (ph > 0.5 ? -1 : 1), anim: ph * 9, ph: ph * 6 };
+}
+function icicle(c, r) { return { kind: 'icicle', x: c * TS + 16, y: r * TS, y0: r * TS, w: 14, h: 28, st: 0, t: 0, vy: 0 }; }
+
+function updateEnemies() {
+  for (const e of enemies) {
+    if (e.kind === 'beetle') {
+      if (e.dead) {
+        e.dead++;
+        if (e.fly) { e.x += e.fly * 4; e.y += e.vy; e.vy += 0.45; e.rot += 0.25 * e.fly; }
+        if (e.dead > 60) e.gone = true;
+        continue;
+      }
+      e.anim += 0.25;
+      const nx = e.x + e.vx, c = Math.floor((e.vx > 0 ? nx + e.w : nx) / TS);
+      const body = tileAt(c, Math.floor((e.y + e.h - 4) / TS)), feet = tileAt(c, Math.floor((e.y + e.h + 4) / TS));
+      // turn around at walls, thorns, water, mushrooms and ledges
+      if (isSolid(body) || body === 3 || body === 4 || !(isSolid(feet) || feet === 5) || feet === 8 || nx < e.minX || nx + e.w > e.maxX) e.vx = -e.vx;
+      else e.x = nx;
+    } else if (e.kind === 'crow') {
+      e.x += e.vx;
+      if (e.x < e.x0 || e.x > e.x1) { e.vx = -e.vx; e.x = clamp(e.x, e.x0, e.x1); }
+      e.y = e.y0 + Math.sin(frame * 0.07 + e.ph) * 7; e.anim += 0.32;
+      if (frame % 240 === Math.floor(e.ph * 30) && Math.abs(e.x - P.x) < VW) tone(700, 480, 0.18, 'sawtooth', 0.03);
+    } else if (e.kind === 'icicle') {
+      if (e.st === 0) {
+        // anything passing underneath shakes it loose
+        const px = P.x + P.w / 2;
+        if (!P.dead && Math.abs(px - e.x) < 44 && P.y + P.h > e.y && P.y - e.y < 9 * TS) { e.st = 1; e.t = 22; SFX.creak(); }
+      } else if (e.st === 1) { if (--e.t <= 0) e.st = 2; }
+      else {
+        e.vy = Math.min(e.vy + 0.6, 14); e.y += e.vy;
+        const tip = tileAt(Math.floor(e.x / TS), Math.floor((e.y + e.h) / TS));
+        if (isSolid(tip) || tip === 5 || tip === 3 || e.y > ROWS * TS) {
+          e.gone = true; SFX.shatter();
+          shards(e.x, e.y + e.h - 4, 9, ['#e8f6ff', '#bfe3ff', '#ffffff'], 3, 0.3, 6, 40);
+        }
+      }
+    }
+  }
+  enemies = enemies.filter(e => !e.gone);
+}
+
+// Touching an enemy: land on a beetle's back (or dash / roll fast into it) to squash it; anything else hurts
+function touchEnemies(vyBefore, oldBottom) {
+  const px = P.x + 3, py = P.y + 3, pw = P.w - 6, ph = P.h - 4;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (e.kind === 'icicle') {
+      if (e.st === 2 && px < e.x + 5 && px + pw > e.x - 5 && py < e.y + e.h && py + ph > e.y + 6) { die('icicle'); return true; }
+      continue;
+    }
+    if (!(px < e.x + e.w - 2 && px + pw > e.x + 2 && py < e.y + e.h && py + ph > e.y + 3)) continue;
+    if (e.kind === 'crow') { die('crow'); return true; }
+    if (vyBefore > 0 && oldBottom <= e.y + 9) {
+      e.dead = 1; SFX.squash(); P.vy = physForm() === 'egg' ? -7 : -9; P.onGround = false; P.sx = 0.8; P.sy = 1.25;
+      if (P.form === 'bird') P.flaps = Math.min(FORMS.bird.flaps, P.flaps + 1);
+      puff(e.x + e.w / 2, e.y + 6, 8, 'rgba(255,255,255,0.9)', 2, 20, 5);
+    } else if (P.dashT > 0 || (physForm() === 'egg' && Math.abs(P.vx) > 7)) {
+      e.dead = 1; e.fly = Math.sign(P.vx) || P.face; e.vy = -6; e.rot = 0; SFX.squash(); shake = Math.max(shake, 6);
+    } else { die('beetle'); return true; }
+  }
+  return false;
+}
+
+// Crumbling stones start shaking when you stand on them, fall away, then grow back a while later
+function updateCrumbles() {
+  if (P && P.onGround && !P.dead) {
+    const r = Math.floor((P.y + P.h + 1) / TS);
+    for (let c = Math.floor(P.x / TS); c <= Math.floor((P.x + P.w - 0.001) / TS); c++) {
+      if (tileAt(c, r) === 10 && !crumbling.some(k => k.c === c && k.r === r)) { crumbling.push({ c, r, st: 0, t: 38 }); SFX.creak(); }
+    }
+  }
+  for (const k of crumbling) {
+    if (--k.t > 0) continue;
+    if (k.st === 0) {
+      map[k.r][k.c] = 0; k.st = 1; k.t = 260; SFX.crumble();
+      shards(k.c * TS + 16, k.r * TS + 10, 7, [TH.earth[0], TH.earth[1], '#e9eef6'], 2.5, 0.35, 8, 50);
+    } else if (!(P.x < k.c * TS + TS && P.x + P.w > k.c * TS && P.y < k.r * TS + TS && P.y + P.h > k.r * TS)) {
+      map[k.r][k.c] = 10; k.gone = true; puff(k.c * TS + 16, k.r * TS + 16, 6, 'rgba(255,255,255,0.7)', 1.5, 20, 5);
+    } else k.t = 10;
+  }
+  crumbling = crumbling.filter(k => !k.gone);
+}
+
+// ============================ GAME STATE ============================
+let state = 'title', camX = 0, camY = 0, camLook = 0, shake = 0, hitstop = 0, particles = [], banner = null;
+let frame = 0, timer = 0, levelT0 = 0, seedCount = 0, paused = false, resetHold = 0, wallHits = 0;
+let result = null, deathCause = '', endT = 0, flash = 0, flashAt = 400, selLevel = 0;
+
+// ---------- progress: unlocked levels and record times (kept in this browser) ----------
+// A level's score is its time plus 10 seconds for every seed left behind. Lower is better.
+const SEED_PENALTY = 600;   // frames = 10 s
+const progress = { unlocked: 1, best: [null, null, null] };
+try { Object.assign(progress, JSON.parse(localStorage.getItem('eggventure-progress')) || {}); } catch (e) {}
+function saveProgress() { try { localStorage.setItem('eggventure-progress', JSON.stringify(progress)); } catch (e) {} }
+selLevel = progress.unlocked - 1;
+
+function startGame(i = selLevel) {
+  selLevel = i;
+  beginLevel(i);
+}
+function toTitle() {
+  state = 'title'; levelNo = 0; buildLevel(); P = newPlayer(); particles = []; banner = null; paused = false;
+}
+// quick = restart from the level's start without the intro (hold R)
+function beginLevel(i, quick = false) {
+  levelNo = i;
+  buildLevel();
+  P = newPlayer();
+  seedCount = 0; particles = []; paused = false; resetHold = 0; hitstop = 0; shake = 0; banner = null; mushroomSquish = 0; wallHits = 0;
+  levelT0 = timer; introT = 0; leafBurst = false;
+  if (quick) {
+    state = 'play'; P.sx = 0.7; P.sy = 1.3;
+    showBanner('Level restarted', LV.name, 120);
+  } else {
+    state = 'intro';
+    if (LV.intro === 'nest') { P.x = NEST.c0 * TS + 70; P.y = NEST.r * TS - P.h - 6; P.face = 1; }
+    else { P.x = START.c * TS + 16 - P.w / 2 - 300; P.y = START.r * TS - P.h - 520; }
+  }
+  snapCamera();
+}
+let introT = 0, leafBurst = false, mushroomSquish = 0;
+function updateIntro() {
+  introT++;
+  const landY = START.r * TS - P.h, landX = START.c * TS + 16 - P.w / 2;
+  if (pressed('jump') || pressed('start')) { P.y = landY; P.x = landX; }
+  if (LV.intro === 'nest') {
+    if (introT < 70) P.angle = Math.sin(introT * 0.3) * 0.3 * (introT / 70);            // wobble…
+    else if (introT < 95) { P.x += 3; P.angle += 0.14; }                                 // …tip over the edge
+    else {                                                                              // …and fall
+      P.vy = Math.min(P.vy + 0.35, 9); P.y += P.vy; P.x += 0.4; P.angle += 0.15;
+      if (!leafBurst && P.y + P.h > 4 * TS) {
+        leafBurst = true; SFX.flap();
+        shards(P.x + P.w / 2, 5 * TS, 18, ['#3f9a3c', '#2f7d32', '#6cc04a'], 3, 0.12, 8, 80);
+      }
+    }
+  } else if (P.y < landY) {
+    // tumbling in on the wind
+    const k = Math.min(1, introT / 90);
+    P.x = landX - 300 * (1 - k); P.y = landY - 520 * (1 - k * k); P.angle += 0.2;
+    if (frame % 3 === 0) particles.push({ x: P.x + rand(-40, 40), y: P.y + rand(-30, 30), vx: rand(2, 5), vy: rand(-0.5, 1.5), life: 40, max: 40, color: TH.snow ? 'rgba(255,255,255,0.9)' : 'rgba(120,170,80,0.9)', size: rand(2, 5), grav: 0, shape: TH.snow ? 'c' : 's', rot: 0, vr: 0.2 });
+  }
+  if (P.y >= landY) {
+    P.y = landY; P.x = clamp(P.x, landX - 40, landX + 40); P.vy = 0; P.onGround = true; P.sx = 1.35; P.sy = 0.7; shake = 8;
+    P.angle = 0; SFX.land(); puff(P.x + P.w / 2, P.y + P.h, 10, 'rgba(230,210,180,0.9)', 2, 22, 5);
+    state = 'play';
+    showBanner(`LEVEL ${levelNo + 1} · ${LV.name}`, LV.tag, 340);
+  }
+  updateCamera();
+}
+function showBanner(title, sub, dur = 220) { banner = { title, sub, t: 0, dur }; }
+
+// ============================ PARTICLES ============================
+function puff(x, y, n, color, spd = 2, life = 30, size = 5, grav = 0) {
+  for (let i = 0; i < n; i++) particles.push({ x, y, vx: rand(-spd, spd), vy: rand(-spd, spd), life, max: life, color, size: rand(size * 0.5, size), grav, shape: 'c' });
+}
+function shards(x, y, n, colors, spd = 4, grav = 0.35, size = 7, life = 50) {
+  for (let i = 0; i < n; i++) particles.push({
+    x, y, vx: rand(-spd, spd), vy: rand(-spd * 1.3, spd * 0.4), life: life + rand(-10, 10) | 0, max: life,
+    color: colors[(Math.random() * colors.length) | 0], size: rand(size * 0.5, size), grav, shape: 's', rot: rand(0, 6), vr: rand(-0.3, 0.3)
+  });
+}
+function sparkle(x, y, n, color = '#fff6a8') {
+  for (let i = 0; i < n; i++) particles.push({ x: x + rand(-14, 14), y: y + rand(-14, 14), vx: rand(-0.6, 0.6), vy: rand(-1.4, -0.3), life: 40, max: 40, color, size: rand(2, 4), grav: 0, shape: 'star' });
+}
+function splash(x, y, n = 12) {
+  for (let i = 0; i < n; i++) particles.push({ x: x + rand(-8, 8), y, vx: rand(-2.2, 2.2), vy: rand(-4.5, -1.5), life: 30, max: 30, color: 'rgba(210,240,255,0.9)', size: rand(2, 4.5), grav: 0.3, shape: 'c' });
+}
+function updateParticles() {
+  for (const p of particles) { p.x += p.vx; p.y += p.vy; p.vy += p.grav; p.vx *= 0.98; p.life--; if (p.rot !== undefined) p.rot += p.vr; }
+  particles = particles.filter(p => p.life > 0);
+}
+
+// ============================ UPDATE ============================
+function update() {
+  frame++;
+  if (state === 'title') {
+    camX = (Math.sin(frame * 0.004 - 1.57) * 0.5 + 0.5) * (COLS * TS - VW);
+    camY = (Math.sin(frame * 0.0027) * 0.5 + 0.5) * (ROWS * TS - VH);
+    // level select: ← → picks any unlocked level
+    if (pressed('left')) selLevel = Math.max(0, selLevel - 1);
+    if (pressed('right')) selLevel = Math.min(progress.unlocked - 1, selLevel + 1);
+    if (pressed('start') || pressed('jump')) startGame();
+    return;
+  }
+  if (pressed('mute')) muted = !muted;
+  if (TH.storm && --flashAt <= 0) { flash = 7; flashAt = 420 + rand(0, 500); SFX.thunder(); }
+  if (flash > 0) flash--;
+  if (state === 'intro') { updateParticles(); updateIntro(); return; }
+  if (state === 'over' || state === 'clear' || state === 'win') {
+    updateParticles(); endT++;
+    if (state === 'win' && frame % 3 === 0) shards(camX + rand(0, VW), camY - 10, 1, ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff'], 2, 0.08, 8, 160);
+    if (endT > 45) {
+      // dying only costs you this level; a cleared level unlocks the next one for good
+      if (pressed('start') || pressed('jump')) state === 'clear' ? beginLevel(levelNo + 1) : state === 'over' ? beginLevel(levelNo) : toTitle();
+      else if (pressed('reset') && state !== 'over') beginLevel(levelNo);
+      else if (pressed('pause')) toTitle();
+    }
+    return;
+  }
+  if (pressed('pause')) paused = !paused;
+  if (paused) return;
+
+  // hold R to restart this level (the puzzle can be lost by cracking too early). Dying lets you retry the level.
+  if (down('reset')) { if (++resetHold >= 45) { beginLevel(levelNo, true); return; } } else resetHold = 0;
+
+  timer++;
+  updateParticles();
+  if (banner && ++banner.t > banner.dur) banner = null;
+  shake = shake > 0.5 ? shake * 0.86 : 0;
+  if (hitstop > 0) { hitstop--; return; }
+
+  if (mushroomSquish > 0) mushroomSquish--;
+  if (P.dead) { if (--P.dead === 0) { state = 'over'; endT = 0; } return; }
+  updateEnemies();
+  updateCrumbles();
+  if (P.trans > 0) { updateTransform(); updateCamera(); return; }
+
+  const surf = waterAt(P.x + P.w / 2, P.y + P.h - 2);
+  // Leggy egg: hold DOWN to tuck the legs in and roll; legs come back out when there's headroom (and not while floating)
+  if (P.form === 'legs' && P.dashT === 0) {
+    if (down('down') && !P.tucked) {
+      P.tucked = true; resizeTo(FORMS.egg); P.sx = 1.25; P.sy = 0.75; SFX.tuck();
+    } else if (!down('down') && P.tucked && surf === null && fits(FORMS.legs)) {
+      P.tucked = false; resizeTo(FORMS.legs); P.angle = normAngle(P.angle); P.legGrow = 0; P.sx = 0.85; P.sy = 1.2; SFX.untuck();
+    }
+  }
+
+  const F = FORMS[physForm()], eggPhys = physForm() === 'egg';
+  const floating = eggPhys && surf !== null;
+  P.floating = floating;
+  if (surf !== null && !P.wet && P.vy > 1.5) { splash(P.x + P.w / 2, surf); SFX.splash(); }
+  P.wet = surf !== null;
+  const groundedAtStart = P.onGround;   // before any jump this frame clears it
+  const ix = (down('right') ? 1 : 0) - (down('left') ? 1 : 0);
+  if (pressed('jump')) P.jumpBuf = 8; else if (P.jumpBuf > 0) P.jumpBuf--;
+  if (P.onGround) P.coyote = 7; else if (P.coyote > 0) P.coyote--;
+  if (P.dashCD > 0) P.dashCD--;
+  if (P.flapAnim > 0) P.flapAnim--;
+  P.gliding = false;
+
+  if (P.dashT > 0) {
+    P.dashT--;
+    P.vx = P.dx * F.dashSpd; P.vy = 0;
+    P.trail.push(snapshot());
+    if (P.trail.length > 6) P.trail.shift();
+    if (frame % 2) particles.push({ x: P.x + P.w / 2 - P.dx * 10, y: P.y + P.h / 2 + rand(-8, 8), vx: -P.dx * 2, vy: 0, life: 16, max: 16, color: '#ffffff', size: rand(3, 6), grav: 0, shape: 'c' });
+    if (P.dashT === 0) P.vx = P.dx * F.max;
+  } else {
+    if (P.trail.length) P.trail.shift();
+    if (floating) {
+      // bobbing on the water: paddle slowly
+      if (ix) P.vx += ix * 0.2;
+      P.vx *= 0.93;
+      if (Math.abs(P.vx) > 0.3) P.face = Math.sign(P.vx);
+    } else if (eggPhys) {
+      const braking = ix && Math.sign(P.vx) === -ix;
+      const uphill = P.onGround && P.slope && ix === -P.slope;         // pushing up a slope: slow crawl
+      if (ix && (braking || Math.abs(P.vx) < F.max)) P.vx += ix * (P.onGround ? (braking || uphill ? 0.45 : 0.2) : 0.12);
+      if (P.onGround && P.slope) P.vx += P.slope * ROLL.slopeAcc;     // gravity pulls you downhill
+      else if (Math.abs(P.vx) > F.max) P.vx *= P.onGround ? ROLL.fastFriction : 0.998;  // big momentum fades slowly
+      else if (!ix) P.vx *= P.onGround ? 0.955 : 0.995;
+      // coasting tops out lower than pushing (holding the direction you're rolling)
+      const cap = ix && Math.sign(P.vx) === ix ? ROLL.max : ROLL.coast;
+      if (Math.abs(P.vx) > cap) P.vx = Math.sign(P.vx) * Math.max(cap, Math.abs(P.vx) - 0.25);
+      if (Math.abs(P.vx) > 0.3) P.face = Math.sign(P.vx);
+    } else {
+      const acc = P.onGround ? 0.8 : 0.5;
+      if (ix) {
+        if (Math.abs(P.vx) <= F.max || Math.sign(P.vx) !== ix) P.vx += ix * acc;
+        if (Math.abs(P.vx) > F.max) P.vx = lerp(P.vx, Math.sign(P.vx) * F.max, 0.15);
+        P.face = ix;
+      } else P.vx *= P.onGround ? 0.7 : 0.93;
+      if (Math.abs(P.vx) < 0.05) P.vx = 0;
+    }
+
+    // Down + jump while standing on a branch: drop through it
+    if (P.jumpBuf > 0 && P.onGround && down('down') && standingOn(5) && !standingOnSolid()) {
+      P.dropT = 12; P.jumpBuf = 0; P.coyote = 0; P.onGround = false; P.y += 2; P.vy = 1;
+    }
+    // Jump / flap
+    if (P.launchT > 0 && P.jumpBuf > 0) {
+      // jumping just after flying off a ramp adds a kick on top of the launch
+      P.vy -= ROLL.rampJump; P.launchT = 0; P.jumpBuf = 0;
+      P.sx = 0.8; P.sy = 1.25; SFX.hop(); puff(P.x + P.w / 2, P.y + P.h, 6, 'rgba(255,255,255,0.8)', 1.5, 20, 5);
+    } else if (P.jumpBuf > 0 && (P.coyote > 0 || (floating && P.y + P.h / 2 - surf > -8))) {
+      let vy = -F.jump;
+      if (eggPhys && P.onGround && P.slope && P.vx * P.slope < -1)   // jumping while rolling up a ramp
+        vy = -(Math.abs(P.vx) * ROLL.launch + ROLL.rampJump);
+      else if (P.onGround && standingOn(8)) {                                     // jumping on a mushroom
+        vy = -ROLL.bounce; P.vx *= 0.35; mushroomSquish = 14; SFX.boing();
+      }
+      if (floating) splash(P.x + P.w / 2, surf, 6);
+      P.vy = vy; P.jumpBuf = 0; P.coyote = 0; P.onGround = false;
+      P.sx = 0.8; P.sy = 1.25;
+      puff(P.x + P.w / 2, P.y + P.h, 6, 'rgba(255,255,255,0.8)', 1.5, 20, 5);
+      eggPhys ? SFX.hop() : SFX.jump();
+    } else if (pressed('jump') && P.form === 'bird' && !P.onGround && P.flaps > 0) {
+      P.vy = -F.flap; P.flaps--; P.jumpBuf = 0; P.flapAnim = 14;
+      P.sx = 1.15; P.sy = 0.9;
+      shards(P.x + P.w / 2, P.y + P.h * 0.6, 3, ['#fff3b0', '#ffe066'], 1.5, 0.05, 5, 30);
+      SFX.flap();
+    }
+
+    const held = down('jump');
+    let g = F.g;
+    if (P.vy < 0 && !held && !eggPhys) g *= 2.2; // variable jump height
+    P.vy += g;
+    if (floating) {   // buoyancy: settle with the middle of the egg at the surface
+      const depth = P.y + P.h / 2 - surf;
+      P.vy -= g + depth * 0.045;
+      P.vy *= P.vy > 0 ? 0.85 : 0.97;
+    }
+    if (P.form === 'bird' && held && P.vy > 1.6 && !P.onGround) { P.vy = 1.6; P.gliding = true; }
+    // rising warm air: lifts a bird high (hold JUMP to rise faster), barely slows everything else
+    const cx = Math.floor((P.x + P.w / 2) / TS);
+    if (tileAt(cx, Math.floor((P.y + P.h / 2) / TS)) === 11 || tileAt(cx, Math.floor((P.y + P.h - 4) / TS)) === 11) {
+      P.vy -= P.form === 'bird' ? 1.12 : 0.35;
+      if (P.vy < -6.5) P.vy = -6.5;
+      if (P.form === 'bird' && frame % 20 === 0 && P.flaps < F.flaps) P.flaps++;
+      if (frame % 4 === 0) particles.push({ x: P.x + rand(0, P.w), y: P.y + P.h, vx: rand(-0.3, 0.3), vy: rand(-3, -1.5), life: 24, max: 24, color: 'rgba(255,255,255,0.6)', size: rand(1.5, 3), grav: 0, shape: 'c' });
+    }
+    P.vy = Math.min(P.vy, 13);
+
+    // Dash (leggy egg only)
+    if (pressed('dash')) {
+      if (F.dash && P.canDash && P.dashCD === 0) {
+        P.dx = ix || P.face; P.face = P.dx;
+        P.dashT = F.dashT; P.dashCD = F.dashT + 10; P.canDash = false; P.vy = 0;
+        shake = Math.max(shake, 4);
+        puff(P.x + P.w / 2, P.y + P.h / 2, 10, 'rgba(255,255,255,0.9)', 3, 18, 6);
+        SFX.dash();
+      } else if (!F.dash) SFX.nope();
+    }
+  }
+
+  const vyBefore = P.vy, wasGround = groundedAtStart, prevSlope = P.slope, oldBottom = P.y + P.h;
+  moveX(wasGround);
+  if (P.trans) { updateCamera(); return; }
+  moveY(vyBefore);
+  followSlope(wasGround);
+  // Rolling up and off a ramp launches you
+  if (P.launchT > 0) P.launchT--;
+  if (P.dropT > 0) P.dropT--;
+  if (prevSlope && physForm() === 'egg' && !P.onGround && P.vy >= 0 && P.vx * prevSlope < -1) {
+    P.vy = -Math.abs(P.vx) * ROLL.launch;
+    P.launchT = 8; P.coyote = 0;   // a jump in the next few frames adds to the launch instead of replacing it
+    if (Math.abs(P.vx) > 6) { puff(P.x + P.w / 2, P.y + P.h, 10, 'rgba(255,255,255,0.9)', 2.5, 22, 6); SFX.jump(); }
+  }
+
+  if (P.onGround && P.dashT === 0) { P.canDash = true; P.flaps = F.flaps || 0; }
+
+  // Animation
+  if (physForm() === 'egg') P.angle += P.vx / 12;
+  else if (P.form === 'legs') { P.angle = lerp(P.angle, 0, 0.25); P.legGrow = Math.min(1, P.legGrow + 0.2); }
+  if (P.onGround) P.anim += Math.abs(P.vx) * 0.2;
+  P.sx = lerp(P.sx, 1, 0.18); P.sy = lerp(P.sy, 1, 0.18);
+  if (P.onGround && Math.abs(P.vx) > 3 && frame % 6 === 0) puff(P.x + P.w / 2 - P.face * 8, P.y + P.h - 1, 2, 'rgba(230,210,180,0.8)', 1, 18, 4);
+  if (P.blink > 0) P.blink--; else if (Math.random() < 0.006) P.blink = 8;
+
+  // Warm spot: an egg resting here grows legs
+  if (P.form === 'egg' && WARM) {
+    const inWarm = P.onGround && P.x + P.w > WARM.c0 * TS && P.x < (WARM.c1 + 1) * TS && P.y + P.h > WARM.r0 * TS && P.y < (WARM.r1 + 1) * TS;
+    if (inWarm && Math.abs(P.vx) < 1.5) {
+      P.heat++;
+      if (frame % 5 === 0) particles.push({ x: P.x + rand(0, P.w), y: P.y + P.h, vx: rand(-0.3, 0.3), vy: rand(-1.5, -0.6), life: 40, max: 40, color: 'rgba(255,170,80,0.8)', size: rand(2, 4), grav: 0, shape: 'c' });
+      if (P.heat >= 110) startTransform('legs');
+    } else P.heat = Math.max(0, P.heat - 2);
+  }
+
+  // Hazards — one life!
+  if (P.y > ROWS * TS + 30) { die('fall'); return; }
+  if (touchingSpikes()) { die('thorns'); return; }
+  if (physForm() !== 'egg') {
+    const s = waterAt(P.x + P.w / 2, P.y + P.h - 2);
+    if (s !== null && P.y + P.h - s > 10) { die('drown'); return; }
+  }
+  if (touchEnemies(vyBefore, oldBottom)) return;
+
+  // Seeds
+  const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+  for (const s of seeds) if (!s.got && Math.abs(s.x - pcx) < P.w / 2 + 10 && Math.abs(s.y - pcy) < P.h / 2 + 10) {
+    s.got = true; seedCount++; SFX.seed(); sparkle(s.x, s.y, 6, '#ffe066');
+  }
+  // Goal: the bird reaches the nest
+  if (P.form === 'bird' && P.x + P.w > NEST.c0 * TS && P.x < (NEST.c1 + 1) * TS && P.y < NEST.r * TS) levelClear();
+
+  updateCamera();
+}
+
+function snapshot() {
+  return { x: P.x, y: P.y, form: P.form, angle: P.angle, face: P.face, cracks: P.cracks, legGrow: P.legGrow, anim: P.anim, onGround: P.onGround, vx: P.vx, vy: P.vy, sx: P.sx, sy: P.sy, flapAnim: P.flapAnim, gliding: false, dashT: 1, tucked: P.tucked };
+}
+
+const ROLL = { max: 13.5, coast: 10, slopeAcc: 0.35, fastFriction: 0.993, launch: 1.1, bounce: 23, rampJump: 4 };
+
+// What tile types are right under the player's feet
+function tilesUnderFeet() {
+  const r = Math.floor((P.y + P.h + 1) / TS), c0 = Math.floor(P.x / TS), c1 = Math.floor((P.x + P.w - 0.001) / TS), out = [];
+  for (let c = c0; c <= c1; c++) out.push(tileAt(c, r));
+  return out;
+}
+const standingOn = t => tilesUnderFeet().includes(t);
+const standingOnSolid = () => tilesUnderFeet().some(t => isSolid(t));
+
+// Keep grounded players glued to slopes (and let them stand on them)
+function followSlope(wasGround) {
+  P.slope = 0;
+  if (P.vy < 0) return;
+  const s = slopeUnder(P.x + P.w / 2, P.y + P.h);
+  if (!s) return;
+  const bottom = P.y + P.h;
+  const sunk = bottom - s.y;
+  if ((sunk >= 0 && sunk < 24) || (sunk < 0 && wasGround && -sunk <= Math.abs(P.vx) + 8)) {
+    P.y = s.y - P.h; P.vy = 0; P.onGround = true;
+    P.slope = s.t === 7 ? 1 : -1;   // which way is downhill
+  }
+}
+
+function moveX(wasGround) {
+  P.x += P.vx;
+  // on the ground, tiles whose top is just below your feet are slope corners, not walls
+  const hits = overlapSolids(P.x, P.y, P.w, P.h).filter(h => !(wasGround && h.r * TS >= P.y + P.h - 16 - Math.abs(P.vx)));
+  if (!hits.length) return;
+  if (P.dashT > 0) {
+    // Dashing into anything cracks the shell. Rocks break, walls don't.
+    P.x -= P.vx;
+    const rocks = hits.filter(h => h.t === 2);
+    if (rocks.length) breakRocks(rocks);
+    else { wallHits++; SFX.bonk(); shake = 12; hitstop = 6; puff(P.x + P.w / 2 + P.dx * 12, P.y + P.h / 2, 8, 'rgba(200,170,130,0.9)', 2.5, 22, 6); }
+    P.dashT = 0; P.vx = -P.dx * 3.5; P.vy = -4; P.trail = [];
+    crackShell(rocks.length > 0);
+    return;
+  }
+  if (P.vx > 0) P.x = Math.min(...hits.map(h => h.c)) * TS - P.w;
+  else if (P.vx < 0) P.x = (Math.max(...hits.map(h => h.c)) + 1) * TS;
+  if (physForm() === 'egg' && Math.abs(P.vx) > 2) { P.vx = -P.vx * 0.35; P.sx = 0.75; P.sy = 1.2; SFX.land(); }
+  else P.vx = 0;
+}
+
+function moveY(vyBefore) {
+  const oldBottom = P.y + P.h;
+  P.y += P.vy;
+  P.onGround = false;
+  let hits = overlapSolids(P.x, P.y, P.w, P.h);
+  if (P.vy < 0) hits = hits.filter(h => h.r * TS < P.y + P.h - 16); // jumping off a slope: the corner by your feet isn't a ceiling
+  if (P.vy > 0) { // one-way branches
+    const r = Math.floor((P.y + P.h - 0.001) / TS);
+    const c0 = Math.floor(P.x / TS), c1 = Math.floor((P.x + P.w - 0.001) / TS);
+    if (oldBottom <= r * TS + 0.5 && !P.dropT) for (let c = c0; c <= c1; c++) if (tileAt(c, r) === 5) hits.push({ c, r, t: 5 });
+  }
+  if (!hits.length) return;
+  if (P.vy > 0) {
+    const top = Math.min(...hits.map(h => h.r));
+    P.y = top * TS - P.h;
+    // landing on a mushroom (not just rolling across it) bounces you way up
+    if (vyBefore > 2.5 && hits.some(h => h.t === 8 && h.r === top)) {
+      P.vy = -ROLL.bounce; P.vx *= 0.35; P.sx = 0.7; P.sy = 1.4; mushroomSquish = 14; SFX.boing();   // mostly straight up
+      puff(P.x + P.w / 2, P.y + P.h, 8, 'rgba(255,255,255,0.9)', 2, 20, 5);
+      return;
+    }
+    P.onGround = true;
+    if (vyBefore > 5) {
+      P.sx = 1.3; P.sy = 0.72;
+      puff(P.x + P.w / 2, P.y + P.h, 8, 'rgba(230,210,180,0.9)', 2, 22, 5);
+      SFX.land();
+    }
+  } else if (P.vy < 0) {
+    P.y = (Math.max(...hits.map(h => h.r)) + 1) * TS;
+  }
+  P.vy = 0;
+}
+
+function touchingSpikes() {
+  const x = P.x + 4, y = P.y + 4, w = P.w - 8, h = P.h - 5;
+  const c0 = Math.floor(x / TS), c1 = Math.floor((x + w) / TS), r0 = Math.floor(y / TS), r1 = Math.floor((y + h) / TS);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    if (tileAt(c, r) !== 3) continue;
+    const sx = c * TS + 3, sy = r * TS + 14, sw = TS - 6, sh = TS - 14;
+    if (x < sx + sw && x + w > sx && y < sy + sh && y + h > sy) return true;
+  }
+  return false;
+}
+
+function breakRocks(list) {
+  const stack = list.map(h => [h.c, h.r]);
+  while (stack.length) {
+    const [c, r] = stack.pop();
+    if (tileAt(c, r) !== 2) continue;
+    map[r][c] = 0;
+    shards(c * TS + 16, r * TS + 16, 4, ['#b8905f', '#8a6a48', '#d4ad7c', '#6e5238'], 4.5, 0.35, 9, 60);
+    stack.push([c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]);
+  }
+  shake = 18; hitstop = 7;
+  SFX.break();
+}
+
+function crackShell(brokeRock) {
+  P.cracks++;
+  SFX.crack();
+  shards(P.x + P.w / 2, P.y + 8, 5, ['#fffaf0', '#ecd7b3'], 2.5, 0.3, 5, 35);
+  if (P.cracks >= 3) { startTransform('bird'); return; }
+  const left = 3 - P.cracks;
+  if (brokeRock) showBanner(P.cracks === 1 ? 'CRACK!' : 'CRACK CRACK!', `${left} more hit${left > 1 ? 's' : ''} and you'll hatch`, 170);
+  else showBanner('OUCH! Wall hit', `That cracked your shell…  ${left} hit${left > 1 ? 's' : ''} left before you hatch`, 190);
+}
+
+function startTransform(to) {
+  P.transTo = to; P.trans = P.transMax = to === 'bird' ? 120 : 90;
+  P.vx = 0; P.vy = 0; P.dashT = 0; P.trail = [];
+  if (to === 'legs') {
+    P.angle = normAngle(P.angle);
+    setForm('legs'); P.legGrow = 0; P.heat = 0;
+    SFX.power();
+  }
+}
+
+function updateTransform() {
+  P.trans--;
+  const k = 1 - P.trans / P.transMax;
+  if (P.transTo === 'legs') {
+    P.legGrow = Math.min(1, k * 1.5);
+    P.angle = lerp(P.angle, 0, 0.12);
+    if (frame % 3 === 0) sparkle(P.x + P.w / 2, P.y + P.h / 2, 2, '#ffc27a');
+    if (P.trans === 0) {
+      P.angle = 0; P.legGrow = 1;
+      showBanner('LEGS!', 'The warmth made you sprout legs!   Run · Jump · DASH (SHIFT) to smash rocks', 300);
+      P.sy = 1.3; P.sx = 0.8;
+    }
+  } else {
+    if (P.trans > 40 && frame % 12 === 0) { SFX.crack(); shards(P.x + P.w / 2, P.y + 10, 2, ['#fffaf0', '#ecd7b3'], 2, 0.3, 4, 25); }
+    if (P.trans === 40) {
+      setForm('bird'); P.sy = 1.5; P.sx = 0.7;
+      shards(P.x + P.w / 2, P.y + P.h / 2, 26, ['#fffaf0', '#f3e3c3', '#ecd7b3'], 6, 0.3, 10, 70);
+      sparkle(P.x + P.w / 2, P.y + P.h / 2, 16);
+      shake = 22; SFX.hatch();
+    }
+    if (P.trans === 0) {
+      P.flaps = FORMS.bird.flaps;
+      if (requiredIntact()) showBanner('YOU HATCHED… too soon!', 'Birds can\'t dash — a rock still blocks the way.  Hold R to retry the level', 400);
+      else showBanner('YOU HATCHED!', 'Flap: JUMP in the air  ·  Glide: hold JUMP  ·  Fly home to the nest!', 320);
+    }
+  }
+  P.sx = lerp(P.sx, 1, 0.12); P.sy = lerp(P.sy, 1, 0.12);
+}
+const requiredIntact = () => REQUIRED.some(([c, r]) => tileAt(c, r) === 2);
+
+function die(cause) {
+  if (P.dead || P.trans) return;
+  P.dead = 80; deathCause = cause;
+  SFX.die(); shake = 12;
+  if (cause === 'drown') { splash(P.x + P.w / 2, P.y + P.h - 10, 18); SFX.splash(); }
+  const cols = P.form === 'bird' ? ['#ffd23f', '#fff0a8', '#f39a2b'] : ['#fffaf0', '#ecd7b3', '#ffcc33'];
+  shards(P.x + P.w / 2, P.y + P.h / 2, 18, cols, 4, 0.3, 8, 60);
+  P.vx = P.vy = 0; P.dashT = 0; P.trail = []; P.heat = 0;
+}
+function levelClear() {
+  const time = timer - levelT0, missed = seeds.length - seedCount, score = time + missed * SEED_PENALTY;
+  const prev = progress.best[levelNo];
+  result = { seeds: seedCount, of: seeds.length, time, missed, score, prev, record: prev === null || score < prev };
+  if (result.record) progress.best[levelNo] = score;
+  progress.unlocked = Math.min(LEVELS.length, Math.max(progress.unlocked, levelNo + 2));
+  selLevel = Math.min(LEVELS.length - 1, levelNo + 1);
+  saveProgress();
+  state = levelNo === LEVELS.length - 1 ? 'win' : 'clear'; endT = 0;
+  SFX.win();
+  sparkle(P.x + P.w / 2, P.y + P.h / 2, 30, '#ffe066');
+}
+
+function camTarget() {
+  return {
+    x: clamp(P.x + P.w / 2 - VW / 2 + camLook, 0, COLS * TS - VW),
+    y: clamp(P.y + P.h / 2 - VH * 0.55, 0, ROWS * TS - VH),
+  };
+}
+function snapCamera() { camLook = 0; const t = camTarget(); camX = t.x; camY = t.y; }
+function updateCamera() {
+  camLook = lerp(camLook, clamp(P.vx * 14, -100, 100), 0.04);
+  const t = camTarget();
+  camX = lerp(camX, t.x, 0.12); camY = lerp(camY, t.y, 0.12);
+}
+
+// ============================ ART ============================
+// Illustrated look. The static world (earth, grass, bark, leaves, branches, thorns) is painted once per level
+// into an offscreen canvas; rocks, mushrooms, crumbling stones and water change during play, so they're drawn every frame.
+const ART = {
+  bark: '#8c5d3a', barkDark: '#5c3b22', barkHi: '#b08256', hollow: '#3a2416',
+  leafDark: '#2d6638', leaf: '#43884a', leafMid: '#5ba458', leafHi: '#8fcb6c', leafLine: '#1d4527',
+  thorn: '#5c3048', thornHi: '#90587a', thornTip: '#d27c8c',
+  rock: '#cdb89b', rockMid: '#a88f72', rockDark: '#735d49',
+  forestTop: '#5f8f78', forestBottom: '#b8d3a8', trunkFar: '#86ab91', trunkNear: '#6c9479',
+};
+let terrainArt = null, caveArt = null;
+function seeded(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const isEarth = t => t === 1 || t === 6 || t === 7 || t === 8;
+const isUnder = (c, r) => LV.under ? LV.under(c, r) : inRects(LV.caves, c, r - 1);
+const hasDrips = (c, r) => LV.drips ? LV.drips(c, r) : inRects(LV.caves, c, r + 1);
+
+function buildTerrainArt() {
+  const W = COLS * TS, H = ROWS * TS, R = 13, rnd = seeded(11 + levelNo * 7);
+  const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  const earthAt = (c, r) => (c < 0 || c >= COLS || r < 0 || r >= ROWS) ? true : isEarth(map[r][c]);
+  const outlineOf = (maskCanvas, color, px, target) => {
+    const tint = mk(), tc = tint.getContext('2d');
+    tc.drawImage(maskCanvas, 0, 0); tc.globalCompositeOperation = 'source-in'; tc.fillStyle = color; tc.fillRect(0, 0, W, H);
+    for (let k = 0; k < 12; k++) { const an = k / 12 * Math.PI * 2; target.drawImage(tint, Math.cos(an) * px, Math.sin(an) * px); }
+  };
+
+  // 0) cave backdrop (behind everything in the world)
+  caveArt = null;
+  if (LV.caves) {
+    caveArt = mk(); const k = caveArt.getContext('2d');
+    k.filter = 'blur(5px)'; k.fillStyle = TH.cave;
+    for (const [c0, r0, c1, r1] of LV.caves) k.fillRect(c0 * TS - 4, r0 * TS - 4, (c1 - c0 + 1) * TS + 8, (r1 - r0 + 1) * TS + 8);
+    k.filter = 'none'; k.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < W * H / 3000; i++) {
+      const x = rnd() * W, y = rnd() * H;
+      k.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.035)';
+      k.beginPath(); k.ellipse(x, y, 5 + rnd() * 10, 3 + rnd() * 5, rnd() * 3, 0, 7); k.fill();
+    }
+    k.globalCompositeOperation = 'source-over';
+  }
+
+  // 1) silhouette of the ground, with rounded outer corners
+  const mask = mk(), m = mask.getContext('2d');
+  m.fillStyle = '#000';
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const t = map[r][c], x = c * TS, y = r * TS;
+    if (t === 1 || t === 8) {
+      const o = (dc, dr) => !earthAt(c + dc, r + dr);
+      m.beginPath();
+      m.roundRect(x - 0.5, y - 0.5, TS + 1, TS + 1, [o(-1, 0) && o(0, -1) ? R : 0, o(1, 0) && o(0, -1) ? R : 0, o(1, 0) && o(0, 1) ? R : 0, o(-1, 0) && o(0, 1) ? R : 0]);
+      m.fill();
+    } else if (t === 6 || t === 7) {
+      m.beginPath(); m.moveTo(x - 0.5, y + TS + 0.5); m.lineTo(x + TS + 0.5, y + TS + 0.5);
+      if (t === 6) m.lineTo(x + TS + 0.5, y - 0.5); else m.lineTo(x - 0.5, y - 0.5);
+      m.closePath(); m.fill();
+    }
+  }
+
+  // 2) paint the earth: depth gradient, bark on trees, pebbles and soil layers
+  const art = mk(), a = art.getContext('2d');
+  a.drawImage(mask, 0, 0);
+  a.globalCompositeOperation = 'source-in';
+  const eg = a.createLinearGradient(0, 0, 0, H);
+  eg.addColorStop(0, TH.earth[0]); eg.addColorStop(0.45, TH.earth[1]); eg.addColorStop(0.8, TH.earth[2]); eg.addColorStop(1, TH.earth[3]);
+  a.fillStyle = eg; a.fillRect(0, 0, W, H);
+  a.globalCompositeOperation = 'source-atop';
+  a.lineCap = 'round';
+  for (const [c0, r0, c1, r1] of LV.bark || []) {
+    const bx0 = c0 * TS, bw = (c1 - c0 + 1) * TS, by0 = r0 * TS, by1 = (r1 + 1) * TS;
+    const bg = a.createLinearGradient(0, by0, 0, by1);
+    bg.addColorStop(0, ART.barkHi); bg.addColorStop(0.15, ART.bark); bg.addColorStop(0.85, ART.bark); bg.addColorStop(1, 'rgba(140,93,58,0)');
+    a.fillStyle = bg; a.fillRect(bx0, by0, bw, by1 - by0);
+    for (let i = 0; i < (c1 - c0 + 1) * 2.6; i++) {                       // bark grooves
+      const bx = bx0 + 6 + rnd() * (bw - 12); let y = by0 + TS + rnd() * TS * 6;
+      a.strokeStyle = i % 3 ? ART.barkDark : ART.barkHi; a.lineWidth = i % 3 ? 3 : 1.5;
+      a.beginPath(); a.moveTo(bx, y);
+      for (let k = 0; k < 6 && y < by1 - TS; k++) { y += TS * (0.8 + rnd() * 1.2); a.lineTo(bx + Math.sin(k * 1.7 + i) * 4, y); }
+      a.stroke();
+    }
+  }
+  for (let i = 0; i < W * H / 650; i++) {              // specks
+    const x = rnd() * W, y = rnd() * H, sz = 1.2 + rnd() * 3.5;
+    a.fillStyle = rnd() < 0.5 ? 'rgba(255,236,205,0.10)' : 'rgba(45,22,10,0.13)';
+    a.beginPath(); a.ellipse(x, y, sz * 1.3, sz, rnd() * 3, 0, 7); a.fill();
+  }
+  a.strokeStyle = 'rgba(40,28,24,0.10)'; a.lineWidth = 2;
+  for (let y = 20; y < H; y += 22 + rnd() * 14) {       // soil layers
+    a.beginPath(); a.moveTo(0, y);
+    for (let x = 0; x <= W; x += 40) a.lineTo(x, y + Math.sin(x * 0.013 + y) * 4);
+    a.stroke();
+  }
+  for (let i = 0; i < W * H / 8000; i++) {             // embedded stones
+    const x = rnd() * W, y = rnd() * H, sz = 3 + rnd() * 6;
+    a.fillStyle = 'rgba(214,200,180,0.32)'; a.strokeStyle = 'rgba(40,28,24,0.25)'; a.lineWidth = 1.5;
+    a.beginPath(); a.ellipse(x, y, sz * 1.3, sz, rnd() * 3, 0, 7); a.fill(); a.stroke();
+  }
+  const wx0 = WARM.c0 * TS, wy0 = (WARM.r1 + 1) * TS, ww = (WARM.c1 - WARM.c0 + 1) * TS;   // warm floor
+  const wg = a.createRadialGradient(wx0 + ww / 2, wy0, 4, wx0 + ww / 2, wy0, 110);
+  wg.addColorStop(0, 'rgba(255,140,60,0.85)'); wg.addColorStop(1, 'rgba(255,120,50,0)');
+  a.fillStyle = wg; a.fillRect(wx0 - 100, wy0 - 10, ww + 200, 90);
+  a.globalCompositeOperation = 'source-over';
+
+  // 3) compose: outline behind, painted earth on top
+  const out = mk(), o = out.getContext('2d');
+  outlineOf(mask, TH.outline, 3, o);
+  o.drawImage(art, 0, 0);
+
+  // 4) surface details: grass (or snow), cave lips and drips, branches, thorns
+  o.lineCap = 'round'; o.lineJoin = 'round';
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const t = map[r][c], x = c * TS, y = r * TS, above = tileAt(c, r - 1);
+    const openUp = r > 0 && !earthAt(c, r - 1) && above !== 9 && above !== 4 && above !== 2 && above !== 10;
+    if ((t === 1 || t === 8) && openUp) {
+      if (!isUnder(c, r)) grassFlat(o, x, y, !earthAt(c - 1, r), !earthAt(c + 1, r), rnd);
+      else { o.fillStyle = TH.lip; o.beginPath(); o.roundRect(x - 1, y - 2, TS + 2, 5, 2); o.fill(); }
+    }
+    if (t === 1 && above === 4) { o.fillStyle = 'rgba(210,190,140,0.5)'; o.fillRect(x, y - 2, TS, 4); }   // sandy bed under water
+    const below = tileAt(c, r + 1);
+    if (t === 1 && hasDrips(c, r) && !earthAt(c, r + 1) && below !== 5 && below !== 4 && below !== 2 && below !== 10 && rnd() < 0.45) {   // cave drips
+      const dx = x + 6 + rnd() * 20, len = 6 + rnd() * 10;
+      o.fillStyle = TH.snow ? '#cfe4f5' : TH.earth[2]; o.strokeStyle = TH.outline; o.lineWidth = 2;
+      o.beginPath(); o.moveTo(dx - 5, y + TS - 1); o.quadraticCurveTo(dx - 1, y + TS + len * 0.6, dx, y + TS + len); o.quadraticCurveTo(dx + 1, y + TS + len * 0.6, dx + 5, y + TS - 1); o.fill(); o.stroke();
+    }
+    if (t === 3) thorns(o, x, y, rnd);
+  }
+  // slope grass in layered passes across all slope tiles, so neighbouring tiles don't show joints
+  const slopes = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ((map[r][c] === 6 || map[r][c] === 7) && !isUnder(c, r)) slopes.push([c * TS, r * TS, map[r][c] === 6]);
+  for (let pass = 0; pass < 5; pass++) for (const [x, y, up] of slopes) grassSlope(o, x, y, up, rnd, pass);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {       // branches, drawn as whole runs
+    if (map[r][c] !== 5 || (c > 0 && map[r][c - 1] === 5)) continue;
+    let c1 = c; while (c1 + 1 < COLS && map[r][c1 + 1] === 5) c1++;
+    branch(o, c * TS, r * TS, (c1 - c + 1) * TS, rnd);
+  }
+
+  // 5) leafy canopy: overlapping clusters with their own outline
+  const lm = mk(), l = lm.getContext('2d'), blobs = [];
+  l.fillStyle = '#000';
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (map[r][c] === 9) {
+    for (let k = 0; k < 3; k++) {
+      const b = { x: c * TS + 16 + (rnd() - 0.5) * 22, y: r * TS + 16 + (rnd() - 0.5) * 18, r: 15 + rnd() * 8 };
+      blobs.push(b); l.beginPath(); l.arc(b.x, b.y, b.r, 0, 7); l.fill();
+    }
+  }
+  if (blobs.length) {
+    const la = mk(), lc = la.getContext('2d');
+    lc.drawImage(lm, 0, 0); lc.globalCompositeOperation = 'source-in'; lc.fillStyle = ART.leafDark; lc.fillRect(0, 0, W, H);
+    lc.globalCompositeOperation = 'source-atop';
+    for (const b of blobs) { lc.fillStyle = ART.leaf; lc.beginPath(); lc.arc(b.x - 2, b.y - 4, b.r * 0.82, 0, 7); lc.fill(); }
+    for (const b of blobs) { lc.fillStyle = ART.leafMid; lc.beginPath(); lc.arc(b.x - 4, b.y - 7, b.r * 0.55, 0, 7); lc.fill(); }
+    for (const b of blobs) if (rnd() < 0.7) { lc.fillStyle = ART.leafHi; lc.beginPath(); lc.ellipse(b.x - 6, b.y - 10, b.r * 0.22, b.r * 0.14, -0.6, 0, 7); lc.fill(); }
+    lc.strokeStyle = 'rgba(29,69,39,0.45)'; lc.lineWidth = 1.5;
+    for (const b of blobs) { lc.beginPath(); lc.arc(b.x, b.y + 2, b.r * 0.7, 0.4, 1.6); lc.stroke(); }
+    outlineOf(lm, ART.leafLine, 2.5, o);
+    o.drawImage(la, 0, 0);
+  }
+
+  terrainArt = out;
+}
+
+function grassFlat(g, x, y, capL, capR, rnd) {
+  const [hi, mid, dark] = TH.grass;
+  const x0 = x + (capL ? 3 : -1), x1 = x + TS + (capR ? -3 : 1);
+  g.fillStyle = dark;
+  for (let k = 0; k < 4; k++) {                       // scalloped underside
+    const cx = x + 4 + k * 8;
+    if ((capL && cx < x + 7) || (capR && cx > x + TS - 7)) continue;
+    g.beginPath(); g.arc(cx, y + 6, 4.5, 0, Math.PI); g.fill();
+  }
+  g.beginPath(); g.roundRect(x0, y - 5, x1 - x0, 11, [capL ? 7 : 0, capR ? 7 : 0, capR ? 5 : 0, capL ? 5 : 0]); g.fill();
+  g.fillStyle = mid; g.beginPath(); g.roundRect(x0, y - 5, x1 - x0, 8, [capL ? 6 : 0, capR ? 6 : 0, 2, 2]); g.fill();
+  g.fillStyle = hi; g.beginPath(); g.roundRect(x0 + (capL ? 4 : 0), y - 5, x1 - x0 - (capL ? 4 : 0) - (capR ? 4 : 0), 2.5, 1.5); g.fill();
+  g.strokeStyle = TH.outline; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(x0 + (capL ? 5 : 0), y - 5.5); g.lineTo(x1 - (capR ? 5 : 0), y - 5.5); g.stroke();
+  if (TH.snow) {                                       // soft snow lumps instead of tufts
+    for (let k = 0; k < 2; k++) if (rnd() < 0.5) {
+      const bx = x + 6 + rnd() * (TS - 12);
+      g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(bx, y - 6, 5 + rnd() * 3, 3, 0, Math.PI, 0); g.fill();
+      g.strokeStyle = TH.outline; g.lineWidth = 1.5; g.beginPath(); g.ellipse(bx, y - 6, 5, 3, 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+    }
+    return;
+  }
+  g.lineWidth = 2;
+  for (let k = 0; k < 3; k++) if (rnd() < 0.55) {     // tufts
+    const bx = x + 4 + rnd() * (TS - 8), hgt = 6 + rnd() * 7;
+    g.strokeStyle = rnd() < 0.5 ? mid : dark;
+    g.beginPath(); g.moveTo(bx, y - 4); g.quadraticCurveTo(bx - 1, y - hgt * 0.6, bx - 3 + rnd() * 6, y - 4 - hgt); g.stroke();
+  }
+  if (rnd() < 0.07) {                                  // a little flower
+    const fx = x + 6 + rnd() * 20, fy = y - 11;
+    g.fillStyle = rnd() < 0.5 ? '#fff6e0' : '#ffd0dc';
+    for (let p = 0; p < 5; p++) { g.beginPath(); g.arc(fx + Math.cos(p * 1.26) * 2.6, fy + Math.sin(p * 1.26) * 2.6, 1.9, 0, 7); g.fill(); }
+    g.fillStyle = '#f0b03a'; g.beginPath(); g.arc(fx, fy, 1.5, 0, 7); g.fill();
+    g.strokeStyle = dark; g.lineWidth = 1.2; g.beginPath(); g.moveTo(fx, fy + 3); g.lineTo(fx, y - 4); g.stroke();
+  }
+}
+
+function grassSlope(g, x, y, up, rnd, pass) {
+  const [hi, mid, dark] = TH.grass;
+  const ax = x - 1, ay = up ? y + TS + 1 : y - 1, bx = x + TS + 1, by = up ? y - 1 : y + TS + 1;
+  const nx = up ? -0.707 : 0.707, ny = -0.707;       // upward normal
+  const line = (k, color, w) => { g.strokeStyle = color; g.lineWidth = w; g.beginPath(); g.moveTo(ax + nx * k, ay + ny * k); g.lineTo(bx + nx * k, by + ny * k); g.stroke(); };
+  if (pass === 0) return line(1.5, TH.outline, 14);
+  if (pass === 1) return line(0, dark, 11);
+  if (pass === 2) return line(1.5, mid, 7.5);
+  if (pass === 3) return line(4.2, hi, 2.2);
+  if (TH.snow) return;
+  g.lineWidth = 2;
+  for (let k = 0; k < 2; k++) if (rnd() < 0.5) {
+    const t = 0.2 + rnd() * 0.6, px = ax + (bx - ax) * t + nx * 5, py = ay + (by - ay) * t + ny * 5, hgt = 6 + rnd() * 6;
+    g.strokeStyle = mid; g.beginPath(); g.moveTo(px, py); g.quadraticCurveTo(px + nx * hgt * 0.5, py - hgt * 0.6, px + nx * hgt * 0.3 + (rnd() - 0.5) * 4, py - hgt); g.stroke();
+  }
+}
+
+function branch(g, x, y, w, rnd) {
+  const bg = g.createLinearGradient(0, y + 1, 0, y + 13);
+  bg.addColorStop(0, ART.barkHi); bg.addColorStop(0.45, ART.bark); bg.addColorStop(1, ART.barkDark);
+  g.fillStyle = bg; g.strokeStyle = TH.outline; g.lineWidth = 2.5;
+  g.beginPath(); g.roundRect(x - 2, y + 1, w + 4, 12, 6); g.fill(); g.stroke();
+  g.strokeStyle = 'rgba(70,40,20,0.55)'; g.lineWidth = 1.3;
+  for (let px = x + 6; px < x + w - 6; px += 10 + rnd() * 14) { g.beginPath(); g.moveTo(px, y + 5 + rnd() * 2); g.lineTo(px + 6 + rnd() * 6, y + 5 + rnd() * 4); g.stroke(); }
+  if (TH.snow) {                                        // a line of snow on top
+    g.fillStyle = '#f4f8fd'; g.beginPath(); g.roundRect(x, y - 1, w, 5, 3); g.fill();
+    return;
+  }
+  for (let px = x + 10; px < x + w - 10; px += 40 + rnd() * 50) {   // leaf pairs
+    g.fillStyle = ART.leafMid; g.strokeStyle = ART.leafLine; g.lineWidth = 1.5;
+    for (const s of [-1, 1]) { g.beginPath(); g.ellipse(px + s * 5, y - 1, 6, 3, s * -0.5, 0, 7); g.fill(); g.stroke(); }
+  }
+}
+
+function thorns(g, x, y, rnd) {
+  const base = y + TS - 5;
+  g.strokeStyle = TH.outline; g.lineWidth = 7; g.beginPath(); g.moveTo(x - 1, base); g.quadraticCurveTo(x + 16, base + (rnd() - 0.5) * 6, x + TS + 1, base); g.stroke();
+  g.strokeStyle = ART.thorn; g.lineWidth = 4.5; g.stroke();
+  for (let k = 0; k < 4; k++) {
+    const cx = x + 4 + k * 8 + (rnd() - 0.5) * 2, h = 13 + rnd() * 6, lean = (rnd() - 0.5) * 6;
+    g.fillStyle = ART.thorn; g.strokeStyle = TH.outline; g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(cx - 4, base); g.quadraticCurveTo(cx - 1, base - h * 0.5, cx + lean, base - h); g.quadraticCurveTo(cx + 1.5, base - h * 0.5, cx + 4, base); g.closePath(); g.fill(); g.stroke();
+    g.strokeStyle = ART.thornTip; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx + lean * 0.7, base - h * 0.75); g.lineTo(cx + lean, base - h + 1); g.stroke();
+  }
+}
+
+// ---------- per-frame pieces ----------
+function visibleTiles(fn) {
+  const c0 = Math.max(0, Math.floor(camX / TS) - 1), c1 = Math.min(COLS - 1, c0 + Math.ceil(VW / TS) + 2);
+  const r0 = Math.max(0, Math.floor(camY / TS) - 1), r1 = Math.min(ROWS - 1, r0 + Math.ceil(VH / TS) + 2);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) fn(map[r][c], c, r);
+}
+function drawTerrain() {
+  ctx.drawImage(terrainArt, 0, 0);
+  visibleTiles((t, c, r) => { if (t === 2) drawRock(c, r); else if (t === 8) drawMushroomCap(c, r); else if (t === 10) drawCrumble(c, r); });
+}
+function drawRock(c, r) {
+  const x = c * TS, y = r * TS, h = hash(c, r), rk = (dc, dr) => tileAt(c + dc, r + dr) === 2, R = 10;
+  const rad = [!rk(-1, 0) && !rk(0, -1) ? R : 3, !rk(1, 0) && !rk(0, -1) ? R : 3, !rk(1, 0) && !rk(0, 1) ? R : 3, !rk(-1, 0) && !rk(0, 1) ? R : 3];
+  ctx.fillStyle = TH.outline; ctx.beginPath(); ctx.roundRect(x - 1.5, y - 1.5, TS + 3, TS + 3, rad.map(v => v + 1.5)); ctx.fill();
+  const g = ctx.createLinearGradient(x, y, x + TS, y + TS); g.addColorStop(0, ART.rock); g.addColorStop(1, ART.rockMid);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x + 1, y + 1, TS - 2, TS - 2, rad); ctx.fill();
+  ctx.fillStyle = 'rgba(255,248,230,0.5)'; ctx.beginPath(); ctx.ellipse(x + 10, y + 8, 6, 2.8, -0.5, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(80,60,45,0.18)'; ctx.beginPath(); ctx.ellipse(x + 20, y + 22, 7, 4, 0.3, 0, 7); ctx.fill();
+  ctx.strokeStyle = ART.rockDark; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath();
+  ctx.moveTo(x + 8 + (h % 10), y + 4); ctx.lineTo(x + 16, y + 13); ctx.lineTo(x + 10 + ((h >> 3) % 9), y + 20); ctx.lineTo(x + 17, y + 28);
+  ctx.moveTo(x + 16, y + 13); ctx.lineTo(x + 25, y + 16);
+  ctx.stroke();
+}
+function drawMushroomCap(c, r) {
+  const x = c * TS, y = r * TS;
+  const sq = mushroomSquish > 0 ? Math.sin(mushroomSquish / 14 * Math.PI) * 6 : 0;
+  ctx.fillStyle = '#f6ead4'; ctx.strokeStyle = TH.outline; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.roundRect(x + 10, y - 7 + sq, 12, 12 - sq, 3); ctx.fill(); ctx.stroke();
+  const g = ctx.createLinearGradient(0, y - 20, 0, y);
+  g.addColorStop(0, '#f2665a'); g.addColorStop(1, '#c23a33');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(x + 16, y - 6 + sq, 19 + sq, 12 - sq / 2, 0, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff8ee';
+  for (const [dx, dy, rr] of [[-8, -10, 3.2], [2, -14, 2.6], [10, -8, 2.6]]) { ctx.beginPath(); ctx.arc(x + 16 + dx, y + dy + sq, rr, 0, 7); ctx.fill(); }
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.ellipse(x + 9, y - 13 + sq, 5, 2, -0.4, 0, 7); ctx.fill();
+}
+// a pale, already-cracked slab; it trembles once you stand on it
+function drawCrumble(c, r) {
+  const k = crumbling.find(q => q.c === c && q.r === r && q.st === 0);
+  const sh = k ? rand(-1.5, 1.5) * (1 - k.t / 38) * 2 : 0, x = c * TS + sh, y = r * TS, h = hash(c, r);
+  ctx.fillStyle = TH.outline; ctx.beginPath(); ctx.roundRect(x - 1, y - 1, TS + 2, TS * 0.62 + 2, 7); ctx.fill();
+  const g = ctx.createLinearGradient(0, y, 0, y + TS * 0.62);
+  g.addColorStop(0, '#dfe5ee'); g.addColorStop(1, '#9aa4b6');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, TS - 3, TS * 0.62 - 3, 5); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(x + 3, y + 1, TS - 6, 4, 2); ctx.fill();
+  ctx.strokeStyle = '#5b6478'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.beginPath();
+  ctx.moveTo(x + 9 + (h % 6), y + 3); ctx.lineTo(x + 13, y + 10); ctx.lineTo(x + 10, y + 17);
+  ctx.moveTo(x + 22, y + 4); ctx.lineTo(x + 19 + (h % 4), y + 12);
+  if (k) { ctx.moveTo(x + 4, y + 12); ctx.lineTo(x + 16, y + 9); ctx.lineTo(x + 28, y + 14); }
+  ctx.stroke();
+  // little rubble hanging underneath
+  ctx.fillStyle = '#8b95a8'; ctx.strokeStyle = TH.outline; ctx.lineWidth = 1.5;
+  for (const [dx, rr] of [[8, 4], [18, 5], [26, 3]]) { ctx.beginPath(); ctx.arc(x + dx, y + TS * 0.62, rr, 0, Math.PI); ctx.fill(); ctx.stroke(); }
+}
+function drawWater() {
+  const col = TH.water || [70, 150, 205];
+  visibleTiles((t, c, r) => {
+    if (t !== 4) return;
+    const x = c * TS, y = r * TS, top = tileAt(c, r - 1) !== 4;
+    const deep = top ? 0 : 1;
+    ctx.fillStyle = `rgba(${col[0] - deep * 25},${col[1] - deep * 30},${col[2] - deep * 20},${0.55 + deep * 0.12})`;
+    if (!top) { ctx.fillRect(x, y, TS, TS); return; }
+    const wy = sx => y + 3 + Math.sin((sx + frame * 1.2) * 0.09) * 2 + Math.sin((sx - frame * 0.7) * 0.05) * 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y + TS);
+    for (let sx = x; sx <= x + TS; sx += 4) ctx.lineTo(sx, wy(sx));
+    ctx.lineTo(x + TS, y + TS); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(235,250,255,0.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); for (let sx = x; sx <= x + TS; sx += 4) sx === x ? ctx.moveTo(sx, wy(sx)) : ctx.lineTo(sx, wy(sx)); ctx.stroke();
+    if (hash(c, r) % 3 === 0) { ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x + 6 + Math.sin(frame * 0.03 + c) * 4, y + 12, 10, 2); }
+  });
+}
+function drawUpdrafts() {
+  ctx.lineCap = 'round';
+  visibleTiles((t, c, r) => {
+    if (t !== 11) return;
+    for (let k = 0; k < 2; k++) {
+      const h = hash(c, r * 3 + k), off = (frame * (3 + k) + h % 64) % 64, x = c * TS + 8 + k * 14 + Math.sin(frame * 0.05 + h) * 3;
+      ctx.strokeStyle = `rgba(255,255,255,${0.1 + (h % 5) * 0.03})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, r * TS + TS + 16 - off); ctx.lineTo(x, r * TS + TS - off); ctx.stroke();
+    }
+  });
+}
+
+// ---------- enemies ----------
+function drawEnemies() {
+  for (const e of enemies) {
+    if (e.x + 60 < camX || e.x - 60 > camX + VW || e.y + 60 < camY || e.y - 60 > camY + VH) continue;
+    if (e.kind === 'beetle') drawBeetle(e);
+    else if (e.kind === 'crow') drawCrow(e);
+    else drawIcicle(e);
+  }
+}
+function drawBeetle(e) {
+  const dir = e.vx > 0 ? 1 : -1;
+  ctx.save(); ctx.translate(e.x + e.w / 2, e.y + e.h);
+  if (e.dead && e.fly) { ctx.translate(0, -9); ctx.rotate(e.rot); ctx.scale(1, -1); ctx.translate(0, 9); ctx.globalAlpha = clamp(1 - e.dead / 60, 0, 1); }
+  else if (e.dead) { ctx.scale(1.3, 0.35); ctx.globalAlpha = clamp(1 - e.dead / 60, 0, 1); }
+  ctx.scale(dir, 1);
+  ctx.strokeStyle = '#1c1426'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {                                     // six little legs
+    const ph = e.anim + i * 2.1, lx = -8 + i * 8;
+    ctx.beginPath(); ctx.moveTo(lx, -6); ctx.lineTo(lx + Math.sin(ph) * 3 - 2, -1 + Math.min(0, Math.cos(ph)) * 1.5); ctx.stroke();
+  }
+  ctx.fillStyle = '#2b2138'; ctx.beginPath(); ctx.arc(12, -8, 5.5, 0, 7); ctx.fill(); ctx.stroke();   // head
+  ctx.strokeStyle = '#2b2138'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(14, -12); ctx.quadraticCurveTo(18, -18, 21, -17); ctx.moveTo(12, -13); ctx.quadraticCurveTo(14, -19, 17, -20); ctx.stroke();
+  const g = ctx.createLinearGradient(0, -18, 0, -2);
+  g.addColorStop(0, '#8a5cc7'); g.addColorStop(1, '#3d2566');
+  ctx.fillStyle = g; ctx.strokeStyle = '#1c1426'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(-1, -8, 12, 9, 0, Math.PI, 0); ctx.lineTo(11, -4); ctx.quadraticCurveTo(0, -1, -13, -4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-1, -17); ctx.lineTo(-1, -3); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(-6, -13, 3.5, 1.8, -0.4, 0, 7); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(14, -9, 2, 0, 7); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(14.7, -9, 1, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawCrow(e) {
+  const dir = e.vx > 0 ? 1 : -1, wing = Math.sin(e.anim) * 0.9;
+  ctx.save(); ctx.translate(e.x + e.w / 2, e.y + e.h / 2); ctx.scale(dir, 1);
+  ctx.fillStyle = '#1f2233'; ctx.strokeStyle = '#0c0d14'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.save(); ctx.rotate(-wing); ctx.beginPath(); ctx.moveTo(-2, -2); ctx.lineTo(-16, -14); ctx.lineTo(-10, -4); ctx.lineTo(-18, -8); ctx.lineTo(-6, 3); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.beginPath(); ctx.moveTo(-16, 2); ctx.lineTo(-25, -1); ctx.lineTo(-24, 6); ctx.closePath(); ctx.fill(); ctx.stroke();   // tail
+  ctx.beginPath(); ctx.ellipse(0, 1, 13, 8, 0, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(11, -4, 6.5, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#f2b93b'; ctx.beginPath(); ctx.moveTo(16, -6); ctx.lineTo(25, -3); ctx.lineTo(16, -1); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffdd55'; ctx.beginPath(); ctx.arc(12.5, -5.5, 2.2, 0, 7); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(13.2, -5.5, 1.1, 0, 7); ctx.fill();
+  ctx.save(); ctx.rotate(wing * 0.8); ctx.fillStyle = '#2c3048'; ctx.beginPath(); ctx.moveTo(2, -1); ctx.lineTo(-10, -16); ctx.lineTo(-6, -6); ctx.lineTo(-14, -9); ctx.lineTo(-3, 4); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.restore();
+}
+function drawIcicle(e) {
+  const sh = e.st === 1 ? rand(-1.5, 1.5) : 0, x = e.x + sh, y = e.y;
+  const g = ctx.createLinearGradient(x - 7, 0, x + 7, 0);
+  g.addColorStop(0, '#f4fbff'); g.addColorStop(1, '#9fd0f0');
+  ctx.fillStyle = g; ctx.strokeStyle = '#3d5a78'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.quadraticCurveTo(x - 3, y + e.h * 0.5, x, y + e.h); ctx.quadraticCurveTo(x + 3, y + e.h * 0.5, x + 8, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x - 3, y + 3); ctx.lineTo(x - 1, y + e.h * 0.6); ctx.stroke();
+}
+
+// ---------- backgrounds ----------
+const clouds = Array.from({ length: 8 }, (_, i) => ({ x: i * 210 + rand(0, 90), y: rand(20, 150), s: rand(0.7, 1.3) }));
+let snowA = 0.75;
+const motes = Array.from({ length: 40 }, () => ({ x: rand(0, VW), y: rand(0, VH), s: rand(1, 2.4), p: rand(0, 6), v: rand(0.15, 0.4) }));
+
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, VH);
+  g.addColorStop(0, TH.sky[0]); g.addColorStop(0.55, TH.sky[1]); g.addColorStop(1, TH.sky[2]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+  if (TH.sun) {
+    const [fx, fy, rr, rgb] = TH.sun, sx = VW * fx, sy = fy - camY * 0.12;
+    const sg = ctx.createRadialGradient(sx, sy, 8, sx, sy, rr);
+    sg.addColorStop(0, `rgba(${rgb},1)`); sg.addColorStop(0.2, `rgba(${rgb},0.55)`); sg.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, VW, VH);
+  }
+  for (const c of clouds) {
+    const w = VW + 320, x = (((c.x - camX * 0.1 + frame * (TH.storm ? 0.35 : 0.08)) % w) + w) % w - 160, y = c.y - camY * 0.15;
+    const s = c.s * (TH.storm ? 1.5 : 1);
+    ctx.fillStyle = TH.cloud[1];
+    ctx.beginPath(); ctx.ellipse(x + 4, y + 8 * s, 50 * s, 13 * s, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = TH.cloud[0];
+    ctx.beginPath();
+    ctx.ellipse(x, y, 44 * s, 15 * s, 0, 0, 7);
+    ctx.ellipse(x + 20 * s, y - 11 * s, 26 * s, 18 * s, 0, 0, 7);
+    ctx.ellipse(x - 18 * s, y - 6 * s, 20 * s, 13 * s, 0, 0, 7);
+    ctx.fill();
+  }
+  for (const h of TH.hills) layer(...h);
+  if (flash > 0) { ctx.fillStyle = `rgba(235,240,255,${flash / 7 * 0.5})`; ctx.fillRect(0, 0, VW, VH); }
+}
+// a rolling hill band (or a jagged snowy range); optionally dotted with little round trees
+function layer(par, base, amp, freq, color, trees, jag) {
+  const b = base - camY * par;
+  const hy = sx => {
+    const wx = sx + camX * par;
+    if (jag) return b - amp * (0.2 + 0.8 * Math.pow(1 - Math.abs(Math.sin(wx * freq)), 1.6) * (0.6 + 0.4 * Math.sin(wx * freq * 0.37 + 2)));
+    return b - amp * (Math.sin(wx * freq) + 0.5 * Math.sin(wx * freq * 2.3 + 1));
+  };
+  if (trees) {
+    for (let k = -1; k < 14; k++) {
+      const step = 90, off = (camX * par) % step, sx = k * step - off + ((k * 37) % 40), hgt = 30 + ((k * 53) % 20);
+      const y = hy(sx) + 6;
+      ctx.fillStyle = trees;
+      if (TH.snow) { ctx.beginPath(); ctx.moveTo(sx, y - hgt); ctx.lineTo(sx + hgt * 0.3, y); ctx.lineTo(sx - hgt * 0.3, y); ctx.fill(); continue; }   // little pines
+      ctx.fillRect(sx - 2, y - hgt * 0.5, 4, hgt * 0.5);
+      ctx.beginPath(); ctx.ellipse(sx, y - hgt * 0.6, hgt * 0.32, hgt * 0.42, 0, 0, 7); ctx.fill();
+    }
+  }
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, VH);
+  for (let sx = 0; sx <= VW + 8; sx += 8) ctx.lineTo(sx, hy(sx));
+  ctx.lineTo(VW, VH); ctx.fill();
+  if (jag) {   // snow caps on the high parts
+    const cap = b - amp * 0.62;
+    ctx.fillStyle = 'rgba(245,248,255,0.85)'; ctx.beginPath(); ctx.moveTo(0, hy(0));
+    for (let sx = 0; sx <= VW + 8; sx += 8) ctx.lineTo(sx, hy(sx));
+    for (let sx = VW + 8; sx >= 0; sx -= 8) { const h = hy(sx); ctx.lineTo(sx, h < cap ? Math.min(cap + 6 + Math.sin(sx * 0.15) * 5, h + 40) : h); }
+    ctx.fill();
+  }
+}
+
+// world-space backdrop for level 1: the forest under the canopy, the hollow inside the tree, the cave
+function forestBackdrop() {
+  const fx0 = 8 * TS, fy0 = 7 * TS, fx1 = 71 * TS, fy1 = 27 * TS;   // forest ends where the ground/cave begins
+  ctx.save();
+  ctx.beginPath(); ctx.rect(fx0, fy0 - 20, fx1 - fx0, fy1 - fy0 + 20); ctx.clip();
+  const fg = ctx.createLinearGradient(0, fy0, 0, fy1);
+  fg.addColorStop(0, ART.forestTop); fg.addColorStop(1, ART.forestBottom);
+  ctx.fillStyle = fg; ctx.fillRect(fx0, fy0 - 20, fx1 - fx0, fy1 - fy0 + 20);
+  for (const [par, color, wMin, spacing] of [[0.55, ART.trunkFar, 18, 120], [0.3, ART.trunkNear, 30, 190]]) {
+    const period = Math.ceil((VW + 200) / spacing) * spacing;
+    for (let k = 0; k * spacing < period; k++) {
+      const sxp = ((k * spacing - camX * par) % period + period) % period - 100 + ((k * 29) % 30);
+      const wx = camX + sxp, tw = wMin + ((k * 17) % 14);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.roundRect(wx - tw / 2, fy0 - 20, tw, fy1 - fy0 + 20, tw / 3); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(wx - tw / 2 + 3, fy0, 3, fy1 - fy0);
+    }
+  }
+  for (const [bx, bw] of [[14, 60], [30, 90], [47, 70], [60, 110]]) {       // light shafts through the leaves
+    const x = bx * TS, a = 0.10 + Math.sin(frame * 0.02 + bx) * 0.03;
+    const sgr = ctx.createLinearGradient(0, fy0, 0, fy0 + 14 * TS);
+    sgr.addColorStop(0, `rgba(255,248,210,${a})`); sgr.addColorStop(1, 'rgba(255,248,210,0)');
+    ctx.fillStyle = sgr; ctx.beginPath();
+    ctx.moveTo(x, fy0); ctx.lineTo(x + bw, fy0); ctx.lineTo(x + bw + 160, fy0 + 14 * TS); ctx.lineTo(x + 120, fy0 + 14 * TS); ctx.fill();
+  }
+  ctx.restore();
+  // inside the hollow trunk
+  ctx.fillStyle = ART.hollow; ctx.fillRect(3 * TS, 3 * TS, 2 * TS, (ROWS - 4) * TS);
+  ctx.strokeStyle = 'rgba(120,80,50,0.35)'; ctx.lineWidth = 2;
+  for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(3 * TS + 10 + i * 14, 3 * TS); ctx.lineTo(3 * TS + 8 + i * 14, (ROWS - 1) * TS); ctx.stroke(); }
+  // cave
+  const top = 26 * TS;
+  const g = ctx.createLinearGradient(0, top, 0, top + 1.5 * TS);
+  g.addColorStop(0, 'rgba(62,42,32,0)'); g.addColorStop(1, 'rgba(62,42,32,1)');
+  ctx.fillStyle = g; ctx.fillRect(Math.max(camX, 5 * TS), top, VW, 1.5 * TS);
+  ctx.fillStyle = TH.cave; ctx.fillRect(Math.max(camX, 5 * TS), top + 1.5 * TS, VW, ROWS * TS);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  for (let r = CAVE_TOP - 1; r < ROWS; r++) for (let c = Math.max(5, Math.floor(camX / TS)); c < Math.floor(camX / TS) + 32; c++) {
+    const h = hash(c, r); if (h % 4 === 0) { ctx.beginPath(); ctx.ellipse(c * TS + h % 20, r * TS + (h >> 4) % 20, 7, 4, 0, 0, 7); ctx.fill(); }
+  }
+}
+// level 2: a weeping willow's crown behind the nest
+function creekBackdrop() {
+  const cx = 96 * TS, cy = 5 * TS;
+  ctx.fillStyle = 'rgba(92,138,72,0.55)';
+  for (const [dx, dy, rx, ry] of [[-150, 40, 120, 70], [-40, -10, 150, 80], [60, 40, 110, 70], [-90, -60, 100, 60]]) { ctx.beginPath(); ctx.ellipse(cx + dx, cy + dy, rx, ry, 0, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = 'rgba(110,160,80,0.55)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  for (let i = 0; i < 16; i++) {                         // drooping strands
+    const x = cx - 250 + i * 22, len = 110 + (hash(i, 3) % 120), sway = Math.sin(frame * 0.02 + i) * 6;
+    ctx.beginPath(); ctx.moveTo(x, cy + 20); ctx.quadraticCurveTo(x + sway, cy + 20 + len * 0.6, x + sway * 1.5, cy + 20 + len); ctx.stroke();
+  }
+}
+// level 2 foreground: cattails by the water
+function creekDecor() {
+  for (const [c, r] of [[23, 19], [36, 20], [37, 20], [44, 20], [82, 19], [83, 19], [81, 16]]) {
+    const x = c * TS + 10, y = r * TS;
+    for (let k = 0; k < 3; k++) {
+      const bx = x + k * 7, hgt = 26 + (hash(c, k) % 14), sway = Math.sin(frame * 0.03 + c + k) * 2;
+      ctx.strokeStyle = '#5b8a3c'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(bx, y); ctx.quadraticCurveTo(bx, y - hgt * 0.5, bx + sway, y - hgt); ctx.stroke();
+      if (k !== 1) { ctx.fillStyle = '#7a4a2a'; ctx.strokeStyle = TH.outline; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(bx + sway - 2.5, y - hgt + 2, 5, 11, 2.5); ctx.fill(); ctx.stroke(); }
+    }
+  }
+}
+
+function drawWorldBackdrop() {
+  if (LV.backdrop) LV.backdrop();
+  if (caveArt) ctx.drawImage(caveArt, 0, 0);
+  const wx = (WARM.c0 + WARM.c1 + 1) / 2 * TS, wy = (WARM.r1 + 1) * TS;
+  const pulse = 1 + Math.sin(frame * 0.05) * 0.06;
+  const wg = ctx.createRadialGradient(wx, wy, 10, wx, wy, 150 * pulse);
+  wg.addColorStop(0, 'rgba(255,170,70,0.7)'); wg.addColorStop(0.5, 'rgba(255,110,40,0.22)'); wg.addColorStop(1, 'rgba(255,90,30,0)');
+  ctx.fillStyle = wg; ctx.fillRect(wx - 160, wy - 160, 320, 170);
+}
+
+// screen-space: drifting pollen / fireflies / snow, and a soft vignette
+function drawAtmosphere() {
+  // snow doesn't fall in caves
+  const indoors = LV.caves && P && state !== 'title' && inRects(LV.caves, Math.floor((P.x + P.w / 2) / TS), Math.floor((P.y + P.h / 2) / TS));
+  snowA = lerp(snowA, indoors ? 0.12 : 0.75, 0.05);
+  for (const m of motes) {
+    let x, y;
+    if (TH.motes === 'snow') {
+      m.y += m.v * 3 + 0.6; m.x += 1.2 + Math.sin(frame * 0.02 + m.p) * 0.6;
+      x = ((m.x - camX * 0.6) % VW + VW) % VW; y = ((m.y - camY * 0.6) % VH + VH) % VH;
+      ctx.fillStyle = `rgba(255,255,255,${snowA})`; ctx.beginPath(); ctx.arc(x, y, m.s * 1.2, 0, 7); ctx.fill();
+      continue;
+    }
+    m.y -= m.v * 0.3; m.x += Math.sin(frame * 0.01 + m.p) * 0.25;
+    x = ((m.x - camX * 0.5) % VW + VW) % VW; y = ((m.y - camY * 0.5) % VH + VH) % VH;
+    if (TH.motes === 'firefly') {
+      const a = Math.max(0, Math.sin(frame * 0.04 + m.p * 3));
+      ctx.fillStyle = `rgba(255,236,140,${a * 0.25})`; ctx.beginPath(); ctx.arc(x, y, m.s * 4, 0, 7); ctx.fill();
+      ctx.fillStyle = `rgba(255,250,200,${a * 0.9})`; ctx.beginPath(); ctx.arc(x, y, m.s * 0.9, 0, 7); ctx.fill();
+      continue;
+    }
+    ctx.fillStyle = `rgba(255,248,215,${0.35 + Math.sin(frame * 0.03 + m.p) * 0.2})`;
+    ctx.beginPath(); ctx.arc(x, y, m.s, 0, 7); ctx.fill();
+  }
+  const v = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.45, VW / 2, VH / 2, VW * 0.72);
+  v.addColorStop(0, `rgba(${TH.tint},0)`); v.addColorStop(1, `rgba(${TH.tint},${TH.storm ? 0.4 : 0.28})`);
+  ctx.fillStyle = v; ctx.fillRect(0, 0, VW, VH);
+}
+
+function spawnWarmEmbers() {
+  if (!WARM) return;
+  if (frame % 6 === 0) particles.push({ x: rand(WARM.c0 * TS, (WARM.c1 + 1) * TS), y: (WARM.r1 + 1) * TS - 2, vx: rand(-0.2, 0.2), vy: rand(-1.2, -0.5), life: 60, max: 60, color: 'rgba(255,190,110,0.7)', size: rand(1.5, 3.5), grav: 0, shape: 'c' });
+  if (TH.warm === 'steam' && frame % 5 === 0) particles.push({ x: rand(WARM.c0 * TS, (WARM.c1 + 1) * TS), y: (WARM.r1 + 1) * TS - 4, vx: rand(-0.3, 0.3), vy: rand(-1.1, -0.5), life: 70, max: 70, color: 'rgba(255,255,255,0.28)', size: rand(6, 11), grav: 0, shape: 'c' });
+}
+
+function drawSigns() {
+  ctx.font = `600 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const s of signs) {
+    const x = s.c * TS + 16, y = s.r * TS;
+    if (x < camX - 200 || x > camX + VW + 200) continue;
+    const w = Math.max(...s.t.map(l => ctx.measureText(l).width)) + 20, h = s.t.length * 15 + 10;
+    ctx.strokeStyle = TH.outline; ctx.lineWidth = 2.5;
+    ctx.fillStyle = ART.bark; ctx.beginPath(); ctx.roundRect(x - 3.5, y - 26, 7, 26, 2); ctx.fill(); ctx.stroke();
+    const bgr = ctx.createLinearGradient(0, y - 26 - h, 0, y - 26);
+    bgr.addColorStop(0, '#f4dcaa'); bgr.addColorStop(1, '#dcb479');
+    ctx.fillStyle = bgr; ctx.beginPath(); ctx.roundRect(x - w / 2, y - 26 - h, w, h, 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(120,80,40,0.25)'; ctx.fillRect(x - w / 2 + 6, y - 26 - 5, w - 12, 2);
+    ctx.fillStyle = ART.barkDark;
+    for (const nx of [x - w / 2 + 6, x + w / 2 - 6]) { ctx.beginPath(); ctx.arc(nx, y - 26 - h + 6, 1.8, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#4a3020';
+    s.t.forEach((l, i) => ctx.fillText(l, x, y - 26 - h + 13 + i * 15));
+  }
+}
+
+function drawSeeds() {
+  for (const s of seeds) {
+    if (s.got) continue;
+    const y = s.y + Math.sin(frame * 0.08 + s.ph) * 3;
+    ctx.save(); ctx.translate(s.x, y); ctx.rotate(Math.sin(frame * 0.05 + s.ph) * 0.4);
+    ctx.fillStyle = 'rgba(255,230,120,0.35)'; ctx.beginPath(); ctx.arc(0, 0, 12, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffcf3f'; ctx.strokeStyle = '#8a5a1a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 5, 8, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(138,90,26,0.6)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawNest() {
+  const x = NEST.c0 * TS, y = NEST.r * TS, w = (NEST.c1 - NEST.c0 + 1) * TS;
+  const mx = x + w * 0.3, my = y - 22 + Math.sin(frame * 0.05) * 2;
+  ctx.save(); ctx.translate(mx, my); ctx.scale(1.6, 1.6);
+  drawBirdBody({ flapAnim: state === 'win' || state === 'clear' ? (frame % 20) : 0, gliding: false, onGround: true, vx: 0, anim: 0 }, false);
+  ctx.restore();
+  ctx.fillStyle = '#8a5a2b';
+  ctx.beginPath(); ctx.ellipse(x + w / 2, y - 10, w / 2 + 4, 16, 0, 0, Math.PI); ctx.fill();
+  ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 2.5;
+  for (let i = 0; i < 8; i++) {
+    ctx.beginPath(); const a = x + 4 + i * (w / 8);
+    ctx.moveTo(a, y - 12 + (i % 2) * 5); ctx.quadraticCurveTo(a + 14, y + 2, a + 24, y - 8 - (i % 3) * 3); ctx.stroke();
+  }
+  ctx.fillStyle = '#a8743f'; ctx.beginPath(); ctx.ellipse(x + w / 2, y - 10, w / 2 + 4, 5, 0, 0, 7); ctx.fill();
+  if (state === 'intro' && LV.intro === 'nest' && introT > 90) { txt('!', mx + 10, y - 90, 34, '#ffe066', 'center'); return; }
+  if (state === 'intro') return;
+  const hy = y - 80 + Math.sin(frame * 0.07) * 5;
+  ctx.fillStyle = '#ff6b8a'; ctx.beginPath();
+  ctx.moveTo(mx, hy + 6); ctx.bezierCurveTo(mx - 14, hy - 4, mx - 6, hy - 14, mx, hy - 6); ctx.bezierCurveTo(mx + 6, hy - 14, mx + 14, hy - 4, mx, hy + 6); ctx.fill();
+}
+
+// ---------- character art ----------
+const CRACKS = [
+  [[-2, -15], [0, -10], [-3, -7], [1, -3]],
+  [[12, -4], [7, -2], [9, 2], [4, 4]],
+  [[-12, 3], [-7, 1], [-5, 6], [-1, 4], [1, 9]],
+  [[-6, -12], [-9, -6], [-12, -5]],
+  [[6, -12], [3, -8], [8, -6], [5, -1]],
+];
+function eggPath(w, h) {
+  ctx.beginPath();
+  ctx.moveTo(0, -h);
+  ctx.bezierCurveTo(w * 0.75, -h, w, -h * 0.2, w, h * 0.25);
+  ctx.bezierCurveTo(w, h * 0.8, w * 0.55, h, 0, h);
+  ctx.bezierCurveTo(-w * 0.55, h, -w, h * 0.8, -w, h * 0.25);
+  ctx.bezierCurveTo(-w, -h * 0.2, -w * 0.75, -h, 0, -h);
+  ctx.closePath();
+}
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function mixHex(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], t))).join(',')})`; }
+function drawEggBody(w, h, cracks, face, blink, heat = 0) {
+  eggPath(w, h);
+  const g = ctx.createRadialGradient(-w * 0.35, -h * 0.4, 1, 0, 0, h * 1.2);
+  g.addColorStop(0, '#fffdf6'); g.addColorStop(1, heat > 0 ? mixHex('#ead3ac', '#ff9a5a', heat) : '#ead3ac');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = '#5b3d24'; ctx.stroke();
+  ctx.fillStyle = 'rgba(196,150,95,0.45)';
+  for (const [a, b, r] of [[-6, 7, 2.2], [5, 10, 1.6], [8, -5, 1.8], [-8, -5, 1.4]]) { ctx.beginPath(); ctx.arc(a * w / 13, b * h / 15.5, r, 0, 7); ctx.fill(); }
+  const ex = face * 3 * w / 13;
+  ctx.fillStyle = '#2a1a10';
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(ex + s * 4.3, -2, 2.1, blink ? 0.6 : 3, 0, 0, 7); ctx.fill(); }
+  if (!blink) { ctx.fillStyle = '#fff'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(ex + s * 4.3 - 0.7, -3.2, 0.9, 0, 7); ctx.fill(); } }
+  ctx.fillStyle = `rgba(255,120,120,${0.4 + heat * 0.4})`;
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(ex + s * 7.5, 3, 2.4, 1.4, 0, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+  for (let i = 0; i < Math.min(cracks, CRACKS.length); i++) {
+    ctx.beginPath();
+    CRACKS[i].forEach(([a, b], j) => j ? ctx.lineTo(a * w / 13, b * h / 15.5) : ctx.moveTo(a * w / 13, b * h / 15.5));
+    ctx.stroke();
+  }
+}
+
+function drawBirdBody(o, withCap = true) {
+  // origin at feet, facing right
+  const running = o.onGround && Math.abs(o.vx) > 0.3;
+  ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    let fx = s * 4, fy = 0;
+    if (running) { fx += Math.sin(o.anim + (s > 0 ? Math.PI : 0)) * 5; fy = -Math.max(0, Math.cos(o.anim + (s > 0 ? Math.PI : 0))) * 3; }
+    else if (!o.onGround) { fx = s * 3 - 2; fy = -3; }
+    ctx.beginPath(); ctx.moveTo(s * 3, -7); ctx.lineTo(fx, fy); ctx.lineTo(fx + 4, fy); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#f5b82e'; ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-10, -18); ctx.lineTo(-20, -24); ctx.lineTo(-18, -17); ctx.lineTo(-22, -13); ctx.lineTo(-10, -12); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffd23f'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(0, -18, 13, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff0a8'; ctx.beginPath(); ctx.ellipse(3, -13, 8, 6, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-1, -31); ctx.quadraticCurveTo(-4, -37, 2, -38); ctx.stroke();
+  ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.ellipse(6, -21, 2.2, 3, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(5.3, -22.2, 0.9, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,120,120,0.45)'; ctx.beginPath(); ctx.ellipse(8, -15, 2.4, 1.4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f39a2b'; ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(11, -21); ctx.lineTo(19, -17.5); ctx.lineTo(11, -14); ctx.closePath(); ctx.fill(); ctx.stroke();
+  let wa = 0.35;
+  if (o.flapAnim > 0) wa = -1.3 * Math.sin((14 - o.flapAnim) / 14 * Math.PI) + 0.2;
+  else if (o.gliding) wa = -0.7 + Math.sin(frame * 0.3) * 0.08;
+  else if (running) wa = 0.35 + Math.sin(o.anim * 2) * 0.15;
+  ctx.save(); ctx.translate(-3, -18); ctx.rotate(wa);
+  ctx.fillStyle = '#f5b82e'; ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(-6, 0, 10, 5.5, 0, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  if (withCap) {
+    ctx.save(); ctx.translate(-1, -30); ctx.rotate(-0.25);
+    ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-10, 2);
+    ctx.bezierCurveTo(-10, -8, -5, -12, 0, -12); ctx.bezierCurveTo(5, -12, 10, -8, 10, 2);
+    ctx.lineTo(7, -1); ctx.lineTo(4, 3); ctx.lineTo(1, -1); ctx.lineTo(-2, 3); ctx.lineTo(-5, -1); ctx.lineTo(-8, 3); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawCharacter(o, alpha = 1) {
+  const F = FORMS[o.form === 'legs' && o.tucked ? 'egg' : o.form];
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  let ox = 0, oy = 0;
+  if (o === P && P.trans && P.transTo === 'bird' && P.form !== 'bird') ox = rand(-1, 1) * (1 - P.trans / P.transMax) * 5;
+  if (o === P && P.floating) oy = Math.sin(frame * 0.12) * 1.5;
+  ctx.translate(o.x + F.w / 2 + ox, o.y + F.h + oy);
+  ctx.scale(o.sx, o.sy);
+  const blink = o === P && P.blink > 0;
+  if (o.form === 'egg' || o.tucked) {
+    ctx.translate(0, -13); ctx.rotate(o.angle);
+    if (o.tucked) { // little tucked-in feet peeking out, rolling with the shell
+      ctx.fillStyle = '#f39a2b'; ctx.strokeStyle = '#5b3d24'; ctx.lineWidth = 1.5;
+      for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * 5, 11.5, 3.5, 2.5, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+    }
+    drawEggBody(11.5, 13, o.cracks, o.face, blink, o === P && o.form === 'egg' ? Math.min(1, P.heat / 110) : 0);
+  } else if (o.form === 'legs') {
+    const lg = o.legGrow, legH = 11 * lg;
+    const running = o.onGround && Math.abs(o.vx) > 0.3;
+    ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      let fx = s * 4, fy = 0;
+      if (running) { const ph = o.anim + (s > 0 ? Math.PI : 0); fx += Math.sin(ph) * 6 * o.face; fy = -Math.max(0, Math.cos(ph)) * 4; }
+      else if (!o.onGround) { fx = s * 5; fy = -3; }
+      if (o.dashT > 0) { fx = s * 3 - o.face * 7; fy = -2; }
+      ctx.beginPath(); ctx.moveTo(s * 4 * lg, -legH); ctx.lineTo(fx * lg, fy * lg); ctx.lineTo((fx + o.face * 5) * lg, fy * lg); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    const lean = o.dashT > 0 ? 0.35 * o.face : clamp(o.vx * 0.04, -0.18, 0.18);
+    const bob = running ? -Math.abs(Math.sin(o.anim)) * 1.5 : 0;
+    ctx.translate(0, -legH - 14.5 + bob); ctx.rotate(o.angle + lean);
+    let cr = o.cracks;
+    if (o === P && P.trans && P.transTo === 'bird') cr = 3 + Math.floor((1 - P.trans / P.transMax) * 3);
+    drawEggBody(12.5, 14.5, cr, o.face, blink);
+  } else {
+    ctx.scale(o.face, 1);
+    drawBirdBody(o);
+  }
+  ctx.restore();
+}
+
+function drawPlayer() {
+  if (P.dead) return;
+  if (P.onGround) { ctx.fillStyle = 'rgba(35,20,10,0.22)'; ctx.beginPath(); ctx.ellipse(P.x + P.w / 2, P.y + P.h, P.w * 0.62, 4, 0, 0, 7); ctx.fill(); }
+  P.trail.forEach((t, i) => drawCharacter(t, (i + 1) / P.trail.length * 0.3));
+  drawCharacter(P);
+  if (P.form === 'egg' && P.heat > 0) {
+    const x = P.x + P.w / 2, y = P.y - 14, k = Math.min(1, P.heat / 110);
+    ctx.fillStyle = 'rgba(30,20,40,0.6)'; ctx.beginPath(); ctx.roundRect(x - 22, y - 4, 44, 8, 4); ctx.fill();
+    ctx.fillStyle = mixHex('#ffd23f', '#ff5a2a', k); ctx.beginPath(); ctx.roundRect(x - 21, y - 3, 42 * k, 6, 3); ctx.fill();
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const a = clamp(p.life / p.max, 0, 1);
+    ctx.globalAlpha = a; ctx.fillStyle = p.color;
+    if (p.shape === 'c') { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.5 + a * 0.5), 0, 7); ctx.fill(); }
+    else if (p.shape === 's') {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.beginPath(); ctx.moveTo(-p.size / 2, -p.size / 3); ctx.lineTo(p.size / 2, -p.size / 2); ctx.lineTo(p.size / 3, p.size / 2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      const s = p.size; ctx.beginPath();
+      ctx.moveTo(p.x, p.y - s * 2); ctx.lineTo(p.x + s * 0.5, p.y - s * 0.5); ctx.lineTo(p.x + s * 2, p.y); ctx.lineTo(p.x + s * 0.5, p.y + s * 0.5);
+      ctx.lineTo(p.x, p.y + s * 2); ctx.lineTo(p.x - s * 0.5, p.y + s * 0.5); ctx.lineTo(p.x - s * 2, p.y); ctx.lineTo(p.x - s * 0.5, p.y - s * 0.5); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- HUD ----------
+function txt(s, x, y, size = 16, color = '#fff', align = 'left', weight = 700) {
+  ctx.font = `${weight} ${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(2.5, size / 7); ctx.strokeStyle = 'rgba(52,32,20,0.9)'; ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(30,15,5,0.35)'; ctx.shadowBlur = size / 3; ctx.shadowOffsetY = 2;
+  ctx.strokeText(s, x, y);
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.fillStyle = color; ctx.fillText(s, x, y);
+}
+function panel(x, y, w, h) {
+  ctx.shadowColor = 'rgba(20,10,5,0.3)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
+  ctx.fillStyle = 'rgba(52,36,28,0.62)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = 'rgba(255,240,215,0.18)'; ctx.lineWidth = 1.5; ctx.stroke();
+}
+function seedIcon(x, y, s = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.fillStyle = '#ffcf3f'; ctx.strokeStyle = '#8a5a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, 0, 5, 8, 0.3, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+}
+
+function drawHUD() {
+  const F = FORMS[P.form], top = touchMode ? 72 : 12;
+  panel(12, top, 270, 62);
+  ctx.save(); ctx.translate(40, top + 50);
+  if (P.form === 'bird') { ctx.scale(0.9, 0.9); drawBirdBody({ onGround: true, vx: 0, anim: 0, flapAnim: 0 }); }
+  else { ctx.translate(0, -18); drawEggBody(12, 14.5, P.cracks, 1, false); if (P.form === 'legs') { ctx.strokeStyle = '#f39a2b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-4, 14); ctx.lineTo(-4, 19); ctx.moveTo(4, 14); ctx.lineTo(4, 19); ctx.stroke(); } }
+  ctx.restore();
+  txt(F.name, 70, top + 18, 18, '#ffe9a8');
+  const abil = { egg: 'roll · hop · floats · fits tunnels', legs: P.tucked ? 'tucked in: roll · float · fit tunnels' : 'run · jump · dash · ↓ tuck & roll', bird: 'run · jump · flap · glide' }[P.form];
+  txt(abil, 70, top + 42, 13, '#ffffff', 'left', 500);
+
+  if (P.form !== 'bird') {
+    panel(12, top + 68, 200, 34);
+    txt('SHELL', 24, top + 85, 13, '#ffe9a8');
+    for (let i = 0; i < 3; i++) {
+      ctx.save(); ctx.translate(92 + i * 28, top + 85); ctx.scale(0.55, 0.55);
+      const broken = i >= 3 - P.cracks;
+      eggPath(12, 15); ctx.fillStyle = broken ? 'rgba(201,176,138,0.35)' : '#fffaf0'; ctx.fill(); ctx.strokeStyle = broken ? 'rgba(91,61,36,0.5)' : '#5b3d24'; ctx.lineWidth = 3; ctx.stroke();
+      if (broken) { ctx.beginPath(); ctx.moveTo(-3, -14); ctx.lineTo(2, -5); ctx.lineTo(-3, 1); ctx.lineTo(3, 9); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (P.form === 'legs') txt('hits left', 175, top + 85, 11, 'rgba(255,255,255,0.75)', 'center', 500);
+  } else {
+    panel(12, top + 68, 170, 34);
+    txt('FLAPS', 24, top + 85, 13, '#ffe9a8');
+    for (let i = 0; i < FORMS.bird.flaps; i++) {
+      ctx.fillStyle = i < P.flaps ? '#ffd23f' : 'rgba(255,255,255,0.2)';
+      ctx.beginPath(); ctx.ellipse(86 + i * 20, top + 85, 7, 4, -0.5, 0, 7); ctx.fill();
+    }
+  }
+
+  const rx = VW - (touchMode ? 232 : 192);
+  panel(rx, top, 180, 82);
+  txt(`LEVEL ${levelNo + 1}`, rx + 14, top + 17, 13, '#ffe9a8');
+  txt(LV.name, rx + 74, top + 17, 13, '#ffffff', 'left', 500);
+  seedIcon(rx + 22, top + 43);
+  txt(`${seedCount} / ${seeds.length}`, rx + 36, top + 43, 17);
+  txt('⏱ ' + fmtTime(timer - levelT0), rx + 98, top + 43, 14, '#fff', 'left', 500);
+  const best = progress.best[levelNo];
+  txt(best === null ? 'Record  —' : `Record  ${fmtTime(best)}`, rx + 14, top + 67, 12, 'rgba(255,233,168,0.9)', 'left', 500);
+
+  if (!touchMode) {
+    const hint = {
+      egg: '← →  roll   ·   SPACE  hop   ·   rest in a warm spot to hatch   ·   hold R  restart level',
+      legs: '← →  run   ·   SPACE  jump   ·   SHIFT  dash (impacts crack you!)   ·   hold ↓  tuck & roll   ·   hold R  restart level',
+      bird: '← →  run   ·   SPACE  jump / flap   ·   hold SPACE  glide / rise   ·   hold R  restart level',
+    }[P.form];
+    txt(hint, VW / 2, VH - 16, 13, 'rgba(255,255,255,0.92)', 'center', 500);
+  }
+  txt('ONE LIFE', VW / 2, touchMode ? 88 : 22, 12, 'rgba(255,210,190,0.85)', 'center', 700);
+
+  if (state === 'play' && P.form === 'bird' && requiredIntact() && !banner) txt('A rock still blocks the way to the nest… hold R to restart the level', VW / 2, VH - 44, 16, '#ffb0a0', 'center');
+
+  if (resetHold > 0) {
+    const k = resetHold / 45;
+    ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(VW / 2, VH / 2, 34, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+    txt('Restarting level…', VW / 2, VH / 2 + 56, 16, '#ffe066', 'center');
+  }
+
+  if (banner) {
+    const t = banner.t, a = Math.min(1, t / 15, (banner.dur - t) / 25);
+    const yy = 150 - Math.max(0, 15 - t) * 2;
+    ctx.globalAlpha = clamp(a, 0, 1);
+    txt(banner.title, VW / 2, yy, 38, '#ffe066', 'center');
+    txt(banner.sub, VW / 2, yy + 38, 16, '#ffffff', 'center', 500);
+    ctx.globalAlpha = 1;
+  }
+}
+function fmtTime(f) { const s = f / 60; return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(Math.floor((s % 1) * 10))}`; }
+
+function drawOverlay(alpha) { ctx.fillStyle = `rgba(25,15,40,${alpha})`; ctx.fillRect(0, 0, VW, VH); }
+const pressKey = what => touchMode ? `Tap to ${what}` : `Press ENTER to ${what}`;
+
+function drawTitle() {
+  drawOverlay(0.5);
+  const cx = VW / 2, cy = 200;
+  ctx.save(); ctx.translate(cx - 120, cy); ctx.scale(2.4, 2.4); ctx.translate(0, -13); ctx.rotate(Math.sin(frame * 0.04) * 0.6); drawEggBody(11.5, 13, 0, 1, false); ctx.restore();
+  ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(2.4, 2.4);
+  drawCharacter({ x: -11, y: -40, form: 'legs', angle: 0, face: 1, cracks: 2, legGrow: 1, anim: frame * 0.3, onGround: true, vx: 3, vy: 0, sx: 1, sy: 1, dashT: 0 });
+  ctx.restore();
+  ctx.save(); ctx.translate(cx + 120, cy + 14 + Math.sin(frame * 0.1) * 6); ctx.scale(2.4, 2.4);
+  drawBirdBody({ onGround: false, vx: 0, anim: 0, flapAnim: 14 - (frame % 28) / 2, gliding: false });
+  ctx.restore();
+  txt('→', cx - 60, cy - 10, 30, '#ffe9a8', 'center');
+  txt('→', cx + 60, cy - 10, 30, '#ffe9a8', 'center');
+
+  txt('EGGVENTURE', cx, 74, 64, '#ffe066', 'center');
+  txt('Three eggs fell from the nest. Get warm, crack wisely, fly home.', cx, 274, 20, '#ffffff', 'center', 500);
+  for (let i = 0; i < LEVELS.length; i++) {
+    const { x, y, w, h } = levelCard(i), open = i < progress.unlocked, sel = i === selLevel, best = progress.best[i];
+    panel(x, y, w, h);
+    if (sel) { ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.stroke(); }
+    txt(`LEVEL ${i + 1}`, x + w / 2, y + 17, 13, open ? '#ffe9a8' : 'rgba(255,255,255,0.4)', 'center');
+    txt(open ? LEVELS[i].name : '🔒 Locked', x + w / 2, y + 38, 17, open ? '#ffffff' : 'rgba(255,255,255,0.45)', 'center');
+    txt(!open ? `Finish level ${i} to unlock` : best === null ? 'No record yet' : `Record  ${fmtTime(best)}`, x + w / 2, y + 60, 12, open ? '#b8ffb0' : 'rgba(255,255,255,0.4)', 'center', 500);
+  }
+  if (Math.floor(frame / 30) % 2 === 0) txt(touchMode ? 'Tap a level to play' : '← →  choose a level   ·   SPACE / ENTER  play', cx, 408, 20, '#b8ffb0', 'center');
+  txt('One life per try · missed seeds add +10 s to your time · dashing smashes rocks but EVERY impact cracks you', cx, 440, 13, 'rgba(255,255,255,0.88)', 'center', 500);
+  if (touchMode) txt('Stick: move · pull ↓ to tuck   ·   JUMP / DASH buttons   ·   ⟲ hold to restart the level', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
+  else txt('← →  move   ·   SPACE / Z  jump   ·   SHIFT / X  dash   ·   hold ↓  tuck legs   ·   hold R  restart level   ·   P  pause   ·   M  mute', cx, 466, 13, 'rgba(255,255,255,0.85)', 'center', 500);
+}
+function levelCard(i) { const w = 250, gap = 18, x0 = VW / 2 - (w * 3 + gap * 2) / 2; return { x: x0 + i * (w + gap), y: 300, w, h: 78 }; }
+function levelCardAt(x, y) { for (let i = 0; i < LEVELS.length; i++) { const c = levelCard(i); if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return i; } return -1; }
+
+const DEATHS = {
+  thorns: ['OUCH! THORNS', 'Your shell couldn\'t take the prickles.'],
+  fall:   ['WHOOPS!', 'That was a long, long way down.'],
+  drown:  ['SPLASH!', 'Only a round egg floats — legs and wings sink.'],
+  beetle: ['CHOMP!', 'Beetles bite. Land on their backs instead!'],
+  crow:   ['CAW!', 'A crow snatched you right out of the air.'],
+  icicle: ['BONK!', 'Icicles drop when you stop underneath them.'],
+};
+function drawGameOver() {
+  drawOverlay(Math.min(0.6, endT / 40));
+  const [title, sub] = DEATHS[deathCause] || DEATHS.fall;
+  txt(title, VW / 2, 150, 56, '#ff8a70', 'center');
+  txt(sub, VW / 2, 205, 20, '#ffffff', 'center', 500);
+  txt(`Level ${levelNo + 1} · ${LV.name}`, VW / 2, 280, 22, '#ffe9a8', 'center');
+  txt(`${seedCount} / ${seeds.length} seeds   ·   ${fmtTime(timer - levelT0)}`, VW / 2, 316, 18, '#fff', 'center', 500);
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey(`retry level ${levelNo + 1}`), VW / 2, 400, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt('ESC  level select', VW / 2, 440, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+}
+// time + 10 s per missed seed, and whether it beat the record
+function drawScore(y) {
+  const r = result;
+  seedIcon(VW / 2 - 70, y, 1.4);
+  txt(`${r.seeds} / ${r.of} seeds`, VW / 2 - 50, y, 24, '#fff');
+  txt(`Time ${fmtTime(r.time)}   +   ${r.missed} missed seed${r.missed === 1 ? '' : 's'} × 10 s`, VW / 2, y + 42, 18, '#fff', 'center', 500);
+  txt(`= ${fmtTime(r.score)}`, VW / 2, y + 82, 34, '#ffe9a8', 'center');
+  if (r.record) txt(r.prev === null ? '★ FIRST RECORD! ★' : `★ NEW RECORD! ★  (was ${fmtTime(r.prev)})`, VW / 2, y + 122, 20, '#b8ffb0', 'center');
+  else txt(`Record  ${fmtTime(r.prev)}`, VW / 2, y + 122, 18, '#ffd0a0', 'center', 500);
+}
+function drawLevelClear() {
+  drawOverlay(0.55);
+  const next = LEVELS[levelNo + 1];
+  txt(`LEVEL ${levelNo + 1} COMPLETE!`, VW / 2, 100, 50, '#ffe066', 'center');
+  drawScore(170);
+  txt(`Level ${levelNo + 2} · ${next.name} unlocked!`, VW / 2, 350, 20, '#ffe9a8', 'center');
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey('play it'), VW / 2, 410, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt('R  retry this level   ·   ESC  level select', VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+}
+function drawWin() {
+  drawOverlay(0.55);
+  txt('ALL THREE EGGS ARE HOME!', VW / 2, 90, 46, '#ffe066', 'center');
+  drawScore(160);
+  txt('Records:  ' + LEVELS.map((L, i) => `${i + 1}. ${progress.best[i] === null ? '—' : fmtTime(progress.best[i])}`).join('   ·   '), VW / 2, 350, 17, '#ffe9a8', 'center', 500);
+  if (endT > 45 && Math.floor(frame / 30) % 2 === 0) txt(pressKey('go to level select'), VW / 2, 410, 22, '#b8ffb0', 'center');
+  if (endT > 45 && !touchMode) txt('R  retry this level', VW / 2, 450, 15, 'rgba(255,255,255,0.8)', 'center', 500);
+}
+
+function draw() {
+  drawBackground();
+  const sx = shake ? rand(-shake, shake) * 0.5 : 0, sy = shake ? rand(-shake, shake) * 0.5 : 0;
+  ctx.save();
+  ctx.translate(-Math.round(camX) + sx, -Math.round(camY) + sy);
+  drawWorldBackdrop();
+  drawUpdrafts();
+  drawTerrain();
+  if (LV.decor) LV.decor();
+  drawSigns();
+  drawNest();
+  drawSeeds();
+  drawEnemies();
+  if (state !== 'title') drawPlayer();
+  drawWater();
+  drawParticles();
+  ctx.restore();
+  drawAtmosphere();
+
+  if (state === 'title') drawTitle();
+  else if (state === 'intro') txt(touchMode ? 'Tap JUMP to skip' : 'SPACE to skip', VW - 20, VH - 20, 13, 'rgba(255,255,255,0.8)', 'right', 500);
+  else {
+    drawHUD();
+    if (state === 'over') drawGameOver();
+    if (state === 'clear') drawLevelClear();
+    if (state === 'win') drawWin();
+    if (paused) { drawOverlay(0.4); txt('PAUSED', VW / 2, VH / 2 - 10, 48, '#ffe066', 'center'); txt(touchMode ? 'Tap ❚❚ to resume' : 'P / ESC to resume', VW / 2, VH / 2 + 34, 18, '#fff', 'center', 500); }
+  }
+}
+
+// ============================ TOUCH CONTROLS ============================
+// Shown automatically on phones/tablets; the corner button toggles them on any device (remembered).
+let touchMode = false;
+function setTouchMode(on) {
+  touchMode = on;
+  document.body.classList.toggle('touch', on);
+  document.getElementById('touchToggle').textContent = on ? 'Hide touch controls' : 'Touch controls';
+  try { localStorage.setItem('eggventure-touch', on ? '1' : '0'); } catch (e) {}
+}
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem('eggventure-touch'); } catch (e) {}
+  setTouchMode(saved !== null ? saved === '1' : matchMedia('(hover: none) and (pointer: coarse)').matches);
+})();
+document.getElementById('touchToggle').addEventListener('click', e => { setTouchMode(!touchMode); e.currentTarget.blur(); });
+
+function setKey(k, on) { if (on && !keys[k]) pressedK[k] = true; keys[k] = on; if (on) initAudio(); }
+
+// Thumb stick: slide left/right to move, pull down to tuck (leggy egg)
+const stick = document.getElementById('stick'), knob = document.getElementById('knob');
+let stickId = null;
+function stickMove(e) {
+  const r = stick.getBoundingClientRect(), R = r.width / 2;
+  let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+  setKey('left', dx < -R * 0.22); setKey('right', dx > R * 0.22);
+  setKey('down', dy > R * 0.45); setKey('up', dy < -R * 0.45);
+  const d = Math.hypot(dx, dy), m = R * 0.6;
+  if (d > m) { dx *= m / d; dy *= m / d; }
+  knob.style.transform = `translate(${dx}px,${dy}px)`;
+}
+function stickEnd() { stickId = null; ['left', 'right', 'down', 'up'].forEach(k => setKey(k, false)); knob.style.transform = ''; stick.classList.remove('on'); }
+stick.addEventListener('pointerdown', e => { stickId = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch (_) {} stick.classList.add('on'); stickMove(e); e.preventDefault(); });
+stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) stickMove(e); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => stick.addEventListener(ev, e => { if (e.pointerId === stickId) stickEnd(); }));
+
+// Buttons (multi-touch friendly: each button tracks its own finger)
+document.querySelectorAll('[data-key]').forEach(el => {
+  const k = el.dataset.key;
+  el.addEventListener('pointerdown', e => { try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('on'); setKey(k, true); if (k === 'jump' && state !== 'play') setKey('start', true); e.preventDefault(); });
+  const up = () => { el.classList.remove('on'); setKey(k, false); if (k === 'jump') setKey('start', false); };
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => el.addEventListener(ev, up));
+});
+// Tap the screen to start / continue
+cvs.addEventListener('pointerdown', e => {
+  if (state === 'title') {
+    const r = cvs.getBoundingClientRect(), x = (e.clientX - r.left) * VW / r.width, y = (e.clientY - r.top) * VH / r.height;
+    const i = levelCardAt(x, y);
+    if (i >= 0) { if (i < progress.unlocked) { initAudio(); startGame(i); } e.preventDefault(); return; }
+  }
+  if (touchMode && state !== 'play' && state !== 'intro') { setKey('start', true); setTimeout(() => setKey('start', false), 60); e.preventDefault(); }
+});
+document.addEventListener('contextmenu', e => { if (touchMode) e.preventDefault(); });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+// Reflect the current form on the buttons
+const dashBtn = document.getElementById('dash'), jumpBtn = document.getElementById('jump'), restartBtn = document.getElementById('restart');
+function updateButtons() {
+  if (!touchMode) return;
+  const canDash = state === 'play' && P.form === 'legs' && !P.tucked;
+  dashBtn.classList.toggle('off', !canDash);
+  const label = state !== 'play' && state !== 'intro' ? 'START' : P.form === 'bird' && !P.onGround ? 'FLAP' : 'JUMP';
+  if (jumpBtn.textContent !== label) jumpBtn.textContent = label;
+  restartBtn.classList.toggle('hold', resetHold > 0);
+}
+
+// ============================ LOOP ============================
+levelNo = 0; buildLevel(); P = newPlayer();
+let last = performance.now(), acc = 0;
+const STEP = 1000 / 60;
+function loop(now) {
+  acc += Math.min(100, now - last); last = now;
+  while (acc >= STEP) {
+    update();
+    if (state === 'play' && !paused) spawnWarmEmbers();
+    for (const k in pressedK) delete pressedK[k];
+    acc -= STEP;
+  }
+  draw();
+  updateButtons();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// Installable as an app (PWA): cache the game so it also opens offline. Only works when served over http(s).
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
